@@ -8,7 +8,8 @@
         "forceConsistentCasingInFileNames": true,
         "strict": true,
         "strictPropertyInitialization": false,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "outDir": "dist"
     },
     "include": ["src/", "src/pages/*"],
     "exclude": [
