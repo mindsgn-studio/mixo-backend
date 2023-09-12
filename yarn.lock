@@ -5417,6 +5417,11 @@ morgan@^1.10.0:
     on-finished "~2.3.0"
     on-headers "~1.0.2"
 
+mp3tag.js@^3.4.2:
+  version "3.4.2"
+  resolved "https://registry.yarnpkg.com/mp3tag.js/-/mp3tag.js-3.4.2.tgz#e22df6f583a1433c13947628ed8c9abf98fc873f"
+  integrity sha512-bhg2KOHS6n0CPFo0sll8RK85GMZip25NinXeFJOo2t1UQF/yj1l/EdKNotFQEqKzmL8n3HX3XtNp4YPJspKhrQ==
+
 mpath@0.9.0:
   version "0.9.0"
   resolved "https://registry.npmjs.org/mpath/-/mpath-0.9.0.tgz"
