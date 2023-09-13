@@ -2,7 +2,6 @@ import { TRPCError } from '@trpc/server'
 import dotenv from 'dotenv'
 import songSchema from '../schema/song.schema'
 import likeSchema from '../schema/like.schema'
-import { z } from 'zod'
 dotenv.config()
 
 export const getAllSongs = async ({
@@ -155,6 +154,11 @@ export const likeSong = async ({
             message: 'Cant get songs at this moment, please try again later',
         })
     }
+}
+
+export const insertSong = async ({}) => {
+    try {
+    } catch (error: any) {}
 }
 
 export const getUserLikes = async ({ userID }: { userID: string }) => {
