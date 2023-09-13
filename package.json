@@ -68,7 +68,6 @@
         "ts-node-dev": "^2.0.0",
         "typescript": "*",
         "uuid": "^9.0.0",
-        "youtube-dl": "^3.5.0",
         "ytdl-core": "4.10.0",
         "zod": "^3.21.4"
     },
