@@ -5,8 +5,7 @@
     "main": "dist/app.js",
     "engines": {
         "node": "16.20.0",
-        "npm": "8.1.2",
-        "yarn": "1.22.19"
+        "npm": "8.1.2"
     },
     "scripts": {
         "prettier-watch": "onchange 'src/**/*.ts' -- prettier --write {{changed}}",

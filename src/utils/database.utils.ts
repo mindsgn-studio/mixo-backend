@@ -1,13 +1,17 @@
-import mongoose from 'mongoose'
-import dotenv from 'dotenv'
-dotenv.config()
+import mongoose from "mongoose";
+import pino from "pino";
+import * as dotenv from "dotenv";
+dotenv.config();
+const logger = pino({ level: "info" });
 
-export const database = async () => {
-    try {
-        await mongoose.connect(`${process.env.MONGO}`)
-        console.log('🚀 Database connected ')
-    } catch (error: any) {
-        console.log(error)
-        process.exit(1)
-    }
-}
+(async () => {
+  try {
+    const db = await mongoose.connect(`${process.env.MONGO}`, {
+      dbName: 'mixo',
+    });
+    console.log("Database is connected to: ", db.connection.name);
+  } catch (error) {
+    console.log("Databse Error");
+    console.error(error);
+  }
+})();
