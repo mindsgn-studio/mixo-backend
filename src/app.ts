@@ -1,14 +1,12 @@
 import dotenv from "dotenv";
-dotenv.config();
-
 import express from "express";
 import helmet from "helmet";
 import { Server } from 'socket.io';
 import { createServer } from "http"; 
 import rateLimit from "express-rate-limit";
-import trackRoute from "./route/track.route"
-
+import trackRoute from "./route/track.route";
 import "./utils/database.utils";
+dotenv.config();
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -38,6 +36,5 @@ io.on('connection', async (socket) => {
     console.log('A user disconnected');
   });
 });
-
 
 export default app;

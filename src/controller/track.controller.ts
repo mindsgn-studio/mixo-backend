@@ -31,15 +31,20 @@ export const search: RequestHandler = async (req, res) => {
                 { title: { $regex: search, $options: 'i' } }
               ]
             };
-      
+
+            const totalCount = await tracksSchema.countDocuments();
+            const totalPages = Math.ceil(totalCount / parseInt(`${limit}`));
+
             const tracks = await tracksSchema
                 .find(query)
-                .sort({ timestamp: -1 })
                 .skip(skip)
                 .limit(parseInt(`${limit}`))
 
             return res.status(200).json({
-                tracks
+                tracks,
+                totalItems: totalCount,
+                totalPages: totalPages,
+                currentPage: page,
             })
         }
 
