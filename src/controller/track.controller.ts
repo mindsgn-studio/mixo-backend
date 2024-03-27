@@ -5,7 +5,7 @@ import {tracksSchema} from '../schema/track.schema'
 export const getRandom: RequestHandler = async (req, res) => {
     try {
         const { query } = req;
-        const { search, page = 1, limit = 100 } = query;
+        const { search, page = 1, limit = 10 } = query;
 
         const tracks = await tracksSchema
             .aggregate([
@@ -22,7 +22,7 @@ export const getRandom: RequestHandler = async (req, res) => {
 export const search: RequestHandler = async (req, res) => {
     try {
         const { query } = req;
-        const { search, page = 1, limit = 100 } = query;
+        const { search, page = 1, limit = 10 } = query;
         const skip = (parseInt(page as string) - 1) * parseInt(`${limit}`);
         
         if (search) {
