@@ -8,7 +8,10 @@ export const getRandom: RequestHandler = async (req, res) => {
         const { search, page = 1, limit = 10 } = query;
 
         const tracks = await tracksSchema
-            .aggregate([{ $sample: { size: parseInt(`${limit}`) } }])
+            .aggregate([
+                { $match: { artist: { $ne: null }, title: { $ne: null } } },
+                { $sample: { size: parseInt(`${limit}`) } }
+            ])
             
         return res.status(200).json({tracks})
     } catch (error) {
