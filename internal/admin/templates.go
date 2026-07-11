@@ -70,6 +70,13 @@ const adminPageTemplate = `<!DOCTYPE html>
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 5px;
+            transition: opacity 0.3s ease;
+        }
+        .now-playing.htmx-settling {
+            opacity: 0.5;
+        }
+        .now-playing img {
+            transition: opacity 0.3s ease;
         }
         .now-playing h3 { margin: 0 0 10px 0; color: #1976d2; }
         .now-playing p { margin: 5px 0; color: #555; }

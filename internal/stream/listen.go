@@ -31,6 +31,19 @@ func (h *ListenHandler) NowPlayingFragment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Get current song ID for ETag
+	var songID int
+	_ = h.db.QueryRow("SELECT value FROM state WHERE key = 'current_song'").Scan(&songID)
+	etag := fmt.Sprintf(`"song-%d"`, songID)
+
+	// Check If-None-Match header
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "text/html")
 	_, _ = w.Write([]byte(h.renderNowPlaying()))
 }
@@ -55,6 +68,8 @@ func (h *ListenHandler) CoverHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cache cover art for 1 hour (images don't change)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	http.ServeFile(w, r, coverArt)
 }
 
@@ -136,6 +151,10 @@ const listenPageTemplate = `<!DOCTYPE html>
             object-fit: cover;
             margin-bottom: 25px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            transition: opacity 0.3s ease;
+        }
+        #now-playing.htmx-settling .cover-art {
+            opacity: 0.5;
         }
         .cover-placeholder {
             width: 250px;
@@ -151,6 +170,10 @@ const listenPageTemplate = `<!DOCTYPE html>
         }
         .song-info {
             margin-bottom: 25px;
+            transition: opacity 0.3s ease;
+        }
+        #now-playing.htmx-settling .song-info {
+            opacity: 0.5;
         }
         .title {
             font-size: 24px;
