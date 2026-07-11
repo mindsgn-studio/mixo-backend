@@ -7,7 +7,7 @@ on:
 jobs:
   build-and-test:
     name: Build and Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
   create-pr:
     name: Create PR to Main
     needs: build-and-test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
       pull-requests: write
@@ -45,6 +45,6 @@ jobs:
           title: "Release: staging → main"
           body: |
             Automated PR from staging to main.
-            
+
             All CI checks (lint, build, test) have passed.
           labels: automated,release
