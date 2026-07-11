@@ -11,10 +11,7 @@ env:
 jobs:
   build-and-test:
     name: Build and Test
-    runs-on:
-      - self-hosted
-      - linux
-      - X64
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -47,10 +44,7 @@ jobs:
   tag-and-deploy:
     name: Tag and Deploy
     needs: build-and-test
-    runs-on:
-      - self-hosted
-      - linux
-      - X64
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
