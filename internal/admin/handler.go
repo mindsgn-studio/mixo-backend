@@ -566,13 +566,26 @@ func (h *Handler) QueueFragment(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(h.renderQueueFragment()))
 }
 
-// NowPlayingFragment returns now playing status HTML
+// NowPlayingFragment returns now playing status HTML with ETag support
 func (h *Handler) NowPlayingFragment(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Get current song ID for ETag
+	var songID int
+	_ = h.db.QueryRow("SELECT value FROM state WHERE key = 'current_song'").Scan(&songID)
+	etag := fmt.Sprintf(`"song-%d"`, songID)
+
+	// Check If-None-Match header
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "text/html")
 	_, _ = w.Write([]byte(h.renderNowPlayingFragment()))
 }
@@ -598,6 +611,8 @@ func (h *Handler) CoverArtHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cache cover art for 1 hour (images don't change)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	http.ServeFile(w, r, coverArt)
 }
 
