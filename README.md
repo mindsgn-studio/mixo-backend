@@ -348,9 +348,7 @@ pm2 list
 ```
 
 ## Version
-
 Current version: v0.1.0
 
 ## License
-
 MIT License
