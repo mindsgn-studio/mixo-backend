@@ -4,9 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/mindsgn-studio/mixo-backend/internal/config"
-	"github.com/mindsgn-studio/mixo-backend/internal/playback"
-	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +14,10 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
+	"github.com/mindsgn-studio/mixo-backend/internal/config"
+	"github.com/mindsgn-studio/mixo-backend/internal/crawler"
+	"github.com/mindsgn-studio/mixo-backend/internal/playback"
+	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 )
 
 type Handler struct {
@@ -24,6 +25,7 @@ type Handler struct {
 	queue    *queue.Manager
 	cfg      *config.Config
 	playback *playback.Engine
+	crawler  *crawler.Crawler
 }
 
 func New(db *sql.DB, q *queue.Manager, cfg *config.Config) *Handler {
@@ -34,9 +36,15 @@ func (h *Handler) SetPlayback(p *playback.Engine) {
 	h.playback = p
 }
 
+func (h *Handler) SetCrawler(c *crawler.Crawler) {
+	h.crawler = c
+}
+
 type AddSongRequest struct {
 	Title    string `json:"title"`
 	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	CoverArt string `json:"cover_art"`
 	Duration int    `json:"duration"`
 	Location string `json:"location"`
 }
@@ -45,6 +53,8 @@ type SongResponse struct {
 	ID       int    `json:"id"`
 	Title    string `json:"title"`
 	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	CoverArt string `json:"cover_art"`
 	Duration int    `json:"duration"`
 	Location string `json:"location"`
 }
@@ -84,8 +94,8 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES (?, ?, ?, ?)",
-		req.Title, req.Artist, req.Duration, req.Location)
+	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location) VALUES (?, ?, ?, ?, ?, ?)",
+		req.Title, req.Artist, req.Album, req.CoverArt, req.Duration, req.Location)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to add song: %v", err), http.StatusInternalServerError)
 		return
@@ -98,6 +108,8 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 		ID:       int(id),
 		Title:    req.Title,
 		Artist:   req.Artist,
+		Album:    req.Album,
+		CoverArt: req.CoverArt,
 		Duration: req.Duration,
 		Location: req.Location,
 	}); err != nil {
@@ -112,7 +124,7 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query("SELECT id, title, artist, duration, location FROM songs ORDER BY created_at DESC")
+	rows, err := h.db.Query("SELECT id, title, artist, album, cover_art, duration, location FROM songs ORDER BY created_at DESC")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list songs: %v", err), http.StatusInternalServerError)
 		return
@@ -126,7 +138,7 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 	var songs []SongResponse
 	for rows.Next() {
 		var song SongResponse
-		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location)
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to scan song: %v", err), http.StatusInternalServerError)
 			return
@@ -277,8 +289,8 @@ func (h *Handler) NowPlaying(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var song SongResponse
-	err = h.db.QueryRow("SELECT id, title, artist, duration, location FROM songs WHERE id = ?", songID).
-		Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location)
+	err = h.db.QueryRow("SELECT id, title, artist, album, cover_art, duration, location FROM songs WHERE id = ?", songID).
+		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get song details: %v", err), http.StatusInternalServerError)
 		return
@@ -387,6 +399,18 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 	if artist == "" {
 		artist = "Unknown Artist"
 	}
+	album := metadata.Album()
+	coverArt := ""
+
+	// Extract cover art if available
+	if metadata.Picture() != nil {
+		coverPath := filepath.Join(h.cfg.SongDir, ".covers", fmt.Sprintf("%d.jpg", time.Now().UnixNano()))
+		if err := os.MkdirAll(filepath.Dir(coverPath), 0755); err == nil {
+			if err := os.WriteFile(coverPath, metadata.Picture().Data, 0644); err == nil {
+				coverArt = coverPath
+			}
+		}
+	}
 
 	// Reset file pointer for duration check
 	if _, err := file.Seek(0, 0); err != nil {
@@ -436,8 +460,8 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save to database
-	result, err := h.db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES (?, ?, ?, ?)",
-		title, artist, duration, filePath)
+	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location) VALUES (?, ?, ?, ?, ?, ?)",
+		title, artist, album, coverArt, duration, filePath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to add song: %v", err), http.StatusInternalServerError)
 		return
@@ -450,6 +474,8 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 		ID:       int(id),
 		Title:    title,
 		Artist:   artist,
+		Album:    album,
+		CoverArt: coverArt,
 		Duration: duration,
 		Location: filePath,
 	}); err != nil {
@@ -549,6 +575,30 @@ func (h *Handler) NowPlayingFragment(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	_, _ = w.Write([]byte(h.renderNowPlayingFragment()))
+}
+
+// CoverArtHandler serves cover art images for songs
+func (h *Handler) CoverArtHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := r.URL.Path[len("/admin/cover/"):]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid song ID", http.StatusBadRequest)
+		return
+	}
+
+	var coverArt string
+	err = h.db.QueryRow("SELECT cover_art FROM songs WHERE id = ?", id).Scan(&coverArt)
+	if err != nil || coverArt == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, coverArt)
 }
 
 // PlayControl handles play/stop toggle
@@ -769,7 +819,7 @@ func (h *Handler) RemoveFromQueueHTMX(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Removed from queue!")
 }
 
-// DeleteSongHTMX deletes a song and returns HTML message
+// DeleteSongHTMX deletes a song from database only (keeps file on disk)
 func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -791,6 +841,7 @@ func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Delete from database only (not from filesystem)
 	result, err := h.db.Exec("DELETE FROM songs WHERE id = ?", id)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
@@ -806,13 +857,13 @@ func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Song deleted successfully!")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Song removed from library!")
 }
 
 // ==================== HELPER METHODS ====================
 
 func (h *Handler) renderSongsFragment() string {
-	rows, err := h.db.Query("SELECT id, title, artist, duration, location FROM songs ORDER BY created_at DESC")
+	rows, err := h.db.Query("SELECT id, title, artist, album, cover_art, duration, location FROM songs ORDER BY created_at DESC")
 	if err != nil {
 		return emptySongsTemplate
 	}
@@ -824,7 +875,7 @@ func (h *Handler) renderSongsFragment() string {
 	count := 0
 	for rows.Next() {
 		var song SongResponse
-		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location)
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
 		if err != nil {
 			continue
 		}
@@ -869,8 +920,8 @@ func (h *Handler) renderNowPlayingFragment() string {
 	}
 
 	var song SongResponse
-	err = h.db.QueryRow("SELECT id, title, artist, duration, location FROM songs WHERE id = ?", songID).
-		Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location)
+	err = h.db.QueryRow("SELECT id, title, artist, album, cover_art, duration, location FROM songs WHERE id = ?", songID).
+		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
 	if err != nil {
 		if h.playback != nil && h.playback.IsPaused() {
 			return fmt.Sprintf(nowPlayingEmptyTemplate, "paused", "Paused", "play", "▶ Play")
@@ -878,8 +929,18 @@ func (h *Handler) renderNowPlayingFragment() string {
 		return fmt.Sprintf(nowPlayingEmptyTemplate, "playing", "Waiting for queue", "stop", "⏸ Pause")
 	}
 
-	if h.playback != nil && h.playback.IsPaused() {
-		return fmt.Sprintf(nowPlayingTemplate, song.Title, song.Artist, song.Duration, "paused", "Paused", "play", "▶ Play")
+	coverHTML := ""
+	if song.CoverArt != "" {
+		coverHTML = fmt.Sprintf(`<img src="/admin/cover/%d" alt="Cover" style="width:100px;height:100px;border-radius:5px;margin-bottom:10px;">`, song.ID)
 	}
-	return fmt.Sprintf(nowPlayingTemplate, song.Title, song.Artist, song.Duration, "playing", "Playing", "stop", "⏸ Pause")
+
+	albumText := ""
+	if song.Album != "" {
+		albumText = fmt.Sprintf("Album: %s", song.Album)
+	}
+
+	if h.playback != nil && h.playback.IsPaused() {
+		return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, albumText, song.Duration, "paused", "Paused", "play", "▶ Play")
+	}
+	return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, albumText, song.Duration, "playing", "Playing", "stop", "⏸ Pause")
 }

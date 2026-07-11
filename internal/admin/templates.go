@@ -176,8 +176,10 @@ const queueRowTemplate = `<tr>
 const emptyQueueTemplate = `<div class="empty">Queue is empty</div>`
 
 const nowPlayingTemplate = `<div class="now-playing">
+    %s
     <h3>Now Playing</h3>
     <p><strong>%s</strong> by %s</p>
+    <p>%s</p>
     <p>Duration: %ds</p>
     <p>Status: <span class="status %s">%s</span></p>
     <form hx-post="/admin/play" hx-target="#now-playing" hx-swap="innerHTML">
