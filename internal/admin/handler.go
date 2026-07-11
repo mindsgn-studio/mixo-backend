@@ -570,7 +570,7 @@ func (h *Handler) PlayControl(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(h.renderNowPlayingFragment()))
+	_, _ = w.Write([]byte(h.renderNowPlayingFragment()))
 }
 
 // UploadSongHTMX handles file upload for HTMX
