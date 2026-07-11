@@ -42,6 +42,7 @@ func RegisterRoutes(h *Handler, mux *http.ServeMux) {
 	mux.HandleFunc("/admin/upload", h.UploadSongHTMX)
 	mux.HandleFunc("/admin/play", h.PlayControl)
 	mux.HandleFunc("/admin/now-playing", h.NowPlayingFragment)
+	mux.HandleFunc("/admin/cover/", h.CoverArtHandler)
 
 	// ========== Legacy API Routes (JSON) ==========
 	// Songs

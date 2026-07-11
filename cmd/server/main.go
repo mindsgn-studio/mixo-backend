@@ -6,18 +6,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mindsgn-studio/mixo-backend/internal/admin"
 	"github.com/mindsgn-studio/mixo-backend/internal/config"
+	"github.com/mindsgn-studio/mixo-backend/internal/crawler"
 	"github.com/mindsgn-studio/mixo-backend/internal/database"
 	"github.com/mindsgn-studio/mixo-backend/internal/playback"
 	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"github.com/mindsgn-studio/mixo-backend/internal/stream"
+	"github.com/mindsgn-studio/mixo-backend/internal/worker"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	log.Printf("Starting Radio Server v%s", version)
@@ -42,6 +45,23 @@ func main() {
 	// Initialize queue manager
 	queueManager := queue.New(db.DB)
 
+	// Initialize crawler
+	crawlerWorker := crawler.New(db.DB, cfg.SongDir)
+
+	// Run initial crawl
+	crawlDirs := strings.Split(cfg.CrawlDirs, ",")
+	if len(crawlDirs) > 0 && crawlDirs[0] != "" {
+		log.Println("Running initial music crawl...")
+		if err := crawlerWorker.ScanDirectories(crawlDirs); err != nil {
+			log.Printf("Warning: crawl error: %v", err)
+		}
+	}
+
+	// Initialize queue worker
+	queueWorker := worker.New(db.DB, queueManager, crawlerWorker, cfg.QueueHours, cfg.CrawlInterval)
+	queueWorker.Start()
+	defer queueWorker.Stop()
+
 	// Initialize playback engine
 	playbackEngine := playback.New(db.DB, queueManager)
 	playbackEngine.Start()
@@ -55,6 +75,7 @@ func main() {
 	// Initialize admin handler
 	adminHandler := admin.New(db.DB, queueManager, cfg)
 	adminHandler.SetPlayback(playbackEngine)
+	adminHandler.SetCrawler(crawlerWorker)
 
 	// Setup HTTP server
 	mux := http.NewServeMux()
