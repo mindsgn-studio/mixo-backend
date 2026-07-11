@@ -9,7 +9,7 @@ jobs:
     name: Build and Test
     runs-on:
       - self-hosted
-      - ubuntu
+      - linux
       - X64
     steps:
       - name: Checkout Code
@@ -33,7 +33,7 @@ jobs:
     needs: build-and-test
     runs-on:
       - self-hosted
-      - ubuntu
+      - linux
       - X64
     permissions:
       contents: write
