@@ -9,9 +9,9 @@ import (
 )
 
 type Config struct {
-	Port         string
-	SongDir      string
-	DBPath       string
+	Port          string
+	SongDir       string
+	DBPath        string
 	StreamTimeout int
 }
 
@@ -26,9 +26,9 @@ func Load() (*Config, error) {
 	streamTimeout := getEnvAsInt("STREAM_TIMEOUT", "5")
 
 	return &Config{
-		Port:         port,
-		SongDir:      songDir,
-		DBPath:       dbPath,
+		Port:          port,
+		SongDir:       songDir,
+		DBPath:        dbPath,
 		StreamTimeout: streamTimeout,
 	}, nil
 }

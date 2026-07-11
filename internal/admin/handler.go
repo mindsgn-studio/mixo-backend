@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/mindsgn-studio/mixo-backend/internal/config"
+	"github.com/mindsgn-studio/mixo-backend/internal/playback"
+	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"github.com/mindsgn-studio/mixo-backend/internal/config"
-	"github.com/mindsgn-studio/mixo-backend/internal/playback"
-	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"strconv"
 	"strings"
 	"time"
@@ -50,16 +50,16 @@ type SongResponse struct {
 }
 
 type QueueItemResponse struct {
-	ID       int           `json:"id"`
-	Position int           `json:"position"`
-	Song     SongResponse  `json:"song"`
+	ID       int          `json:"id"`
+	Position int          `json:"position"`
+	Song     SongResponse `json:"song"`
 }
 
 type HistoryItemResponse struct {
-	ID             int        `json:"id"`
+	ID             int          `json:"id"`
 	Song           SongResponse `json:"song"`
-	PlayedAt       time.Time  `json:"played_at"`
-	DurationPlayed int        `json:"duration_played"`
+	PlayedAt       time.Time    `json:"played_at"`
+	DurationPlayed int          `json:"duration_played"`
 }
 
 type NowPlayingResponse struct {
@@ -324,7 +324,7 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	var history []HistoryItemResponse
 	for rows.Next() {
 		var item HistoryItemResponse
-		err := rows.Scan(&item.ID, &item.PlayedAt, &item.DurationPlayed, 
+		err := rows.Scan(&item.ID, &item.PlayedAt, &item.DurationPlayed,
 			&item.Song.ID, &item.Song.Title, &item.Song.Artist, &item.Song.Duration, &item.Song.Location)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to scan history item: %v", err), http.StatusInternalServerError)

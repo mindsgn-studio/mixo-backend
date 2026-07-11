@@ -2,9 +2,9 @@ package queue
 
 import (
 	"database/sql"
+	"github.com/mindsgn-studio/mixo-backend/internal/database"
 	"os"
 	"testing"
-	"github.com/mindsgn-studio/mixo-backend/internal/database"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -16,12 +16,12 @@ func setupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	
+
 	t.Cleanup(func() {
 		db.Close()
 		os.Remove(tmpDB)
 	})
-	
+
 	return db.DB
 }
 
@@ -68,7 +68,7 @@ func TestManager_AddMultiple(t *testing.T) {
 	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 150)
 
 	qm := New(db)
-	
+
 	qm.Add(songID1)
 	qm.Add(songID2)
 	qm.Add(songID3)

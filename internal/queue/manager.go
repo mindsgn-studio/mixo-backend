@@ -15,14 +15,14 @@ type Song struct {
 }
 
 type QueueItem struct {
-	ID     int
-	Song   Song
+	ID       int
+	Song     Song
 	Position int
 }
 
 type Manager struct {
-	db     *sql.DB
-	mu     sync.RWMutex
+	db *sql.DB
+	mu sync.RWMutex
 }
 
 func New(db *sql.DB) *Manager {
