@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/mindsgn-studio/mixo-backend/internal/admin"
 	"github.com/mindsgn-studio/mixo-backend/internal/config"
 	"github.com/mindsgn-studio/mixo-backend/internal/database"
 	"github.com/mindsgn-studio/mixo-backend/internal/playback"
 	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"github.com/mindsgn-studio/mixo-backend/internal/stream"
-	"syscall"
-	"time"
 )
 
 const version = "0.1.0"
