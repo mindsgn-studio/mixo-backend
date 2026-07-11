@@ -94,13 +94,15 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 	id, _ := result.LastInsertId()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SongResponse{
+	if err := json.NewEncoder(w).Encode(SongResponse{
 		ID:       int(id),
 		Title:    req.Title,
 		Artist:   req.Artist,
 		Duration: req.Duration,
 		Location: req.Location,
-	})
+	}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // ListSongs returns all songs in the database
@@ -115,7 +117,11 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to list songs: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close rows: %v", err), http.StatusInternalServerError)
+		}
+	}()
 
 	var songs []SongResponse
 	for rows.Next() {
@@ -129,7 +135,9 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(songs)
+	if err := json.NewEncoder(w).Encode(songs); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // DeleteSong removes a song from the database
@@ -220,7 +228,9 @@ func (h *Handler) GetQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // RemoveFromQueue removes a song from the playback queue
@@ -257,7 +267,9 @@ func (h *Handler) NowPlaying(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(NowPlayingResponse{Song: nil})
+			if err := json.NewEncoder(w).Encode(NowPlayingResponse{Song: nil}); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+			}
 			return
 		}
 		http.Error(w, fmt.Sprintf("Failed to get current song: %v", err), http.StatusInternalServerError)
@@ -273,7 +285,9 @@ func (h *Handler) NowPlaying(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(NowPlayingResponse{Song: &song})
+	if err := json.NewEncoder(w).Encode(NowPlayingResponse{Song: &song}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // GetHistory returns playback history
@@ -301,7 +315,11 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to get history: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close rows: %v", err), http.StatusInternalServerError)
+		}
+	}()
 
 	var history []HistoryItemResponse
 	for rows.Next() {
@@ -316,7 +334,9 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // UploadSong handles MP3 file uploads
@@ -338,7 +358,11 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No file provided", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close file: %v", err), http.StatusInternalServerError)
+		}
+	}()
 
 	// Validate file extension
 	ext := filepath.Ext(header.Filename)
@@ -399,7 +423,11 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to create file: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
+	defer func() {
+		if err := dst.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close destination file: %v", err), http.StatusInternalServerError)
+		}
+	}()
 
 	// Copy the uploaded file
 	if _, err := io.Copy(dst, file); err != nil {
@@ -418,13 +446,15 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 	id, _ := result.LastInsertId()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SongResponse{
+	if err := json.NewEncoder(w).Encode(SongResponse{
 		ID:       int(id),
 		Title:    title,
 		Artist:   artist,
 		Duration: duration,
 		Location: filePath,
-	})
+	}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // getDuration uses FFprobe to get the duration of an audio file
@@ -434,8 +464,16 @@ func getDuration(file io.Reader) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			fmt.Printf("Warning: failed to close temp file: %v\n", err)
+		}
+	}()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			fmt.Printf("Warning: failed to remove temp file: %v\n", err)
+		}
+	}()
 
 	// Copy the reader to the temp file
 	if _, err := io.Copy(tmpFile, file); err != nil {
@@ -473,7 +511,11 @@ func (h *Handler) AdminPage(w http.ResponseWriter, r *http.Request) {
 	queueHTML := h.renderQueueFragment()
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, adminPageTemplate, nowPlayingHTML, songsHTML, queueHTML)
+	result := adminPageTemplate
+	result = strings.Replace(result, "{{NOW_PLAYING}}", nowPlayingHTML, 1)
+	result = strings.Replace(result, "{{SONGS}}", songsHTML, 1)
+	result = strings.Replace(result, "{{QUEUE}}", queueHTML, 1)
+	fmt.Fprint(w, result)
 }
 
 // SongsFragment returns HTML table of songs
@@ -768,7 +810,9 @@ func (h *Handler) renderSongsFragment() string {
 	if err != nil {
 		return emptySongsTemplate
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var rowsHTML string
 	count := 0

@@ -158,7 +158,9 @@ func (m *Manager) GetAll() ([]QueueItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []QueueItem
 	for rows.Next() {

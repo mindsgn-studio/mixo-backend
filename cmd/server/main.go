@@ -33,7 +33,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Warning: failed to close database: %v", err)
+		}
+	}()
 
 	// Initialize queue manager
 	queueManager := queue.New(db.DB)

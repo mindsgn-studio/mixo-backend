@@ -56,7 +56,7 @@ const adminPageTemplate = `<!DOCTYPE html>
         button.play:hover { background: #138496; }
         button.stop { background: #ffc107; color: #333; }
         button.stop:hover { background: #e0a800; }
-        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; color: #555; font-weight: 600; }
         tr:hover { background: #f8f9fa; }
@@ -90,7 +90,7 @@ const adminPageTemplate = `<!DOCTYPE html>
         <div class="section">
             <h2>Playback Control</h2>
             <div id="now-playing" hx-get="/admin/now-playing" hx-trigger="load, every 5s">
-                %s
+                {{NOW_PLAYING}}
             </div>
         </div>
 
@@ -108,14 +108,14 @@ const adminPageTemplate = `<!DOCTYPE html>
         <div class="section">
             <h2>Songs Library</h2>
             <div id="songs-table" hx-get="/admin/songs" hx-trigger="load, refresh">
-                %s
+                {{SONGS}}
             </div>
         </div>
 
         <div class="section">
             <h2>Playback Queue</h2>
             <div id="queue-table" hx-get="/admin/queue" hx-trigger="load, refresh, every 10s">
-                %s
+                {{QUEUE}}
             </div>
         </div>
     </div>
