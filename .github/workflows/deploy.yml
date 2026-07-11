@@ -1,0 +1,135 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  APP_NAME: mixo-backend
+  BINARY_NAME: radio-server
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Lint Code
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60
+
+      - name: Run Tests
+        run: go test -v -race ./...
+
+      - name: Build Binary
+        run: |
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o ${{ env.BINARY_NAME }} ./cmd/server/
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}
+          path: ${{ env.BINARY_NAME }}
+          retention-days: 1
+
+  tag-and-deploy:
+    name: Tag and Deploy
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          TAG="v1.0.${{ github.run_number }}-${SHORT_SHA}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TAG"
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ steps.tag.outputs.tag }} -m "Release ${{ steps.tag.outputs.tag }}"
+          git push origin ${{ steps.tag.outputs.tag }}
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}
+
+      - name: Make Binary Executable
+        run: chmod +x ${{ env.BINARY_NAME }}
+
+      - name: Upload Binary to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          source: ${{ env.BINARY_NAME }}
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Deploy and Restart PM2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            set -e
+
+            APP_DIR="${{ secrets.DEPLOY_PATH }}"
+            BINARY="${{ env.BINARY_NAME }}"
+            TAG="${{ steps.tag.outputs.tag }}"
+
+            echo "=== Deploying $TAG ==="
+
+            # Stop the current pm2 process if running
+            echo "Stopping pm2 process..."
+            pm2 stop ${{ env.APP_NAME }} || true
+            pm2 delete ${{ env.APP_NAME }} || true
+
+            # Backup current binary
+            if [ -f "$APP_DIR/$BINARY" ]; then
+              echo "Backing up current binary..."
+              cp "$APP_DIR/$BINARY" "$APP_DIR/$BINARY.bak"
+            fi
+
+            # Make new binary executable
+            chmod +x "$APP_DIR/$BINARY"
+
+            # Start with pm2
+            echo "Starting pm2 process..."
+            cd "$APP_DIR"
+            pm2 start ./$BINARY --name ${{ env.APP_NAME }} --env production
+
+            # Save pm2 process list for resurrection
+            pm2 save
+
+            echo "=== Deployment complete: $TAG ==="
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Message:** ${{ github.event.head_commit.message }}" >> $GITHUB_STEP_SUMMARY

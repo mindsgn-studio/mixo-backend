@@ -199,6 +199,154 @@ Topics covered:
 - Slow client detection
 - Real-time throttling
 
+## CI/CD Setup
+
+This project uses GitHub Actions for continuous integration and deployment.
+
+### Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| **Staging to Main** | Push to `staging` | Lints, builds, tests, and creates a PR to `main` |
+| **Deploy to Production** | Push to `main` | Tests, builds, tags, deploys to server, restarts PM2 |
+
+### Required GitHub Secrets
+
+Go to your repository → **Settings** → **Secrets and variables** → **Actions** and add:
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `DEPLOY_HOST` | Server IP or hostname | `192.168.1.100` |
+| `DEPLOY_USERNAME` | SSH username on server | `deploy` |
+| `DEPLOY_SSH_KEY` | Private SSH key for authentication | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `DEPLOY_PORT` | SSH port (optional, defaults to 22) | `22` |
+| `DEPLOY_PATH` | Absolute path to app directory on server | `/home/deploy/mixo-backend` |
+
+### Server Prerequisites (Ubuntu)
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Go
+wget https://go.dev/dl/go1.23.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.23.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+
+# Install FFmpeg
+sudo apt install ffmpeg -y
+
+# Install Node.js (for PM2)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install PM2 globally
+sudo npm install pm2 -g
+
+# Setup PM2 to start on boot
+pm2 startup
+sudo env PATH=$PATH:/usr/local/bin pm2 startup systemd -u $USER --hp $HOME
+
+# Create app directory
+mkdir -p /home/deploy/mixo-backend
+```
+
+### Server Prerequisites (macOS)
+
+```bash
+# Install Homebrew (if not installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Go
+brew install go
+
+# Install FFmpeg
+brew install ffmpeg
+
+# Install Node.js
+brew install node
+
+# Install PM2
+npm install pm2 -g
+
+# Create app directory
+mkdir -p ~/mixo-backend
+```
+
+### Generating SSH Key for Deployment
+
+On your **local machine**:
+
+```bash
+# Generate a dedicated deploy key
+ssh-keygen -t ed25519 -C "github-deploy" -f ~/.ssh/deploy_key -N ""
+
+# Copy the public key to your server
+ssh-copy-id -i ~/.ssh/deploy_key.pub user@your-server-ip
+```
+
+Then add the **private key** contents to the `DEPLOY_SSH_KEY` secret in GitHub:
+
+```bash
+# Print the private key to copy into GitHub Secrets
+cat ~/.ssh/deploy_key
+```
+
+### Running Locally
+
+**Ubuntu / macOS:**
+
+```bash
+# Clone the repo
+git clone https://github.com/mindsgn-studio/mixo-backend.git
+cd mixo-backend
+
+# Install dependencies
+go mod download
+
+# Create .env file
+cp .env.example .env  # or create manually
+
+# Run the server
+go run cmd/server/main.go
+
+# Run tests
+go test ./...
+
+# Build the binary
+go build -o radio-server ./cmd/server/
+
+# Run with PM2
+pm2 start ./radio-server --name mixo-backend
+pm2 logs mixo-backend
+```
+
+### PM2 Commands
+
+```bash
+# Start the app
+pm2 start ./radio-server --name mixo-backend
+
+# Stop the app
+pm2 stop mixo-backend
+
+# Restart the app
+pm2 restart mixo-backend
+
+# View logs
+pm2 logs mixo-backend
+
+# Monitor processes
+pm2 monit
+
+# Save process list (for auto-restart)
+pm2 save
+
+# List all processes
+pm2 list
+```
+
 ## Version
 
 Current version: v0.1.0
