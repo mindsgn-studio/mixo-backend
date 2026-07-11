@@ -99,6 +99,12 @@ func main() {
 	streamHandler := stream.NewHandler(broadcaster)
 	mux.Handle("/stream", streamHandler)
 
+	// Listen page (public-facing player)
+	listenHandler := stream.NewListenHandler(db.DB)
+	mux.Handle("/listen", listenHandler)
+	mux.HandleFunc("/listen/now-playing", listenHandler.NowPlayingFragment)
+	mux.HandleFunc("/cover/", listenHandler.CoverHandler)
+
 	// Admin API endpoints
 	admin.RegisterRoutes(adminHandler, mux)
 

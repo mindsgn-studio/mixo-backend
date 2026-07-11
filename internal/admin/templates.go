@@ -82,7 +82,7 @@ const adminPageTemplate = `<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/stream">Listen to Stream</a>
+            <a href="/listen">Listen to Stream</a>
         </div>
         <h1>Radio Admin</h1>
         <div id="message"></div>
