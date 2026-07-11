@@ -45,10 +45,10 @@ func (f *FFmpegStreamer) Close() error {
 		if err := f.cmd.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to kill ffmpeg: %w", err)
 		}
-		f.cmd.Wait()
+		_ = f.cmd.Wait()
 	}
 	if f.stdout != nil {
-		f.stdout.Close()
+		_ = f.stdout.Close()
 	}
 	return nil
 }

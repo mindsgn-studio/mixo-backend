@@ -515,7 +515,7 @@ func (h *Handler) AdminPage(w http.ResponseWriter, r *http.Request) {
 	result = strings.Replace(result, "{{NOW_PLAYING}}", nowPlayingHTML, 1)
 	result = strings.Replace(result, "{{SONGS}}", songsHTML, 1)
 	result = strings.Replace(result, "{{QUEUE}}", queueHTML, 1)
-	fmt.Fprint(w, result)
+	fmt.Fprint(w, result) //nolint:errcheck
 }
 
 // SongsFragment returns HTML table of songs
@@ -526,7 +526,7 @@ func (h *Handler) SongsFragment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(h.renderSongsFragment()))
+	_, _ = w.Write([]byte(h.renderSongsFragment()))
 }
 
 // QueueFragment returns HTML table of queue
@@ -537,7 +537,7 @@ func (h *Handler) QueueFragment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(h.renderQueueFragment()))
+	_, _ = w.Write([]byte(h.renderQueueFragment()))
 }
 
 // NowPlayingFragment returns now playing status HTML
@@ -548,7 +548,7 @@ func (h *Handler) NowPlayingFragment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(h.renderNowPlayingFragment()))
+	_, _ = w.Write([]byte(h.renderNowPlayingFragment()))
 }
 
 // PlayControl handles play/stop toggle
@@ -584,23 +584,27 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Failed to parse form")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Failed to parse form")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "No file provided")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "No file provided")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close file: %v", err), http.StatusInternalServerError)
+		}
+	}()
 
 	// Validate file extension
 	ext := filepath.Ext(header.Filename)
 	if ext != ".mp3" {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Only MP3 files are allowed")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Only MP3 files are allowed")
 		return
 	}
 
@@ -608,7 +612,7 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 	metadata, err := tag.ReadFrom(file)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to read metadata: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to read metadata: %v", err))
 		return
 	}
 
@@ -625,7 +629,7 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 	// Reset file pointer for duration check
 	if _, err := file.Seek(0, 0); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Failed to reset file pointer")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Failed to reset file pointer")
 		return
 	}
 
@@ -633,21 +637,21 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 	duration, err := getDuration(file)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to get duration: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to get duration: %v", err))
 		return
 	}
 
 	// Reset file pointer for copying
 	if _, err := file.Seek(0, 0); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Failed to reset file pointer")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Failed to reset file pointer")
 		return
 	}
 
 	// Ensure song directory exists
 	if err := os.MkdirAll(h.cfg.SongDir, 0755); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to create song directory: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to create song directory: %v", err))
 		return
 	}
 
@@ -659,15 +663,17 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 	dst, err := os.Create(filePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to create file: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to create file: %v", err))
 		return
 	}
-	defer dst.Close()
-
-	// Copy the uploaded file
+	defer func() {
+		if err := dst.Close(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to close file: %v", err), http.StatusInternalServerError)
+		}
+	}()
 	if _, err := io.Copy(dst, file); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to save file: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to save file: %v", err))
 		return
 	}
 
@@ -676,12 +682,12 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 		title, artist, duration, filePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add song: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add song: %v", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("Song '%s' uploaded successfully!", title))
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("Song '%s' uploaded successfully!", title))
 }
 
 // AddToQueueHTMX adds a song to queue and returns HTML message
@@ -702,7 +708,7 @@ func (h *Handler) AddToQueueHTMX(w http.ResponseWriter, r *http.Request) {
 	songID, err := strconv.Atoi(idStr)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
 		return
 	}
 
@@ -711,7 +717,7 @@ func (h *Handler) AddToQueueHTMX(w http.ResponseWriter, r *http.Request) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM songs WHERE id = ?)", songID).Scan(&exists)
 	if err != nil || !exists {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
 		return
 	}
 
@@ -723,12 +729,12 @@ func (h *Handler) AddToQueueHTMX(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.queue.Add(songID); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add to queue: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add to queue: %v", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("'%s' added to queue!", title))
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("'%s' added to queue!", title))
 }
 
 // RemoveFromQueueHTMX removes a song from queue and returns HTML message
@@ -749,18 +755,18 @@ func (h *Handler) RemoveFromQueueHTMX(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Invalid queue item ID")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Invalid queue item ID")
 		return
 	}
 
 	if err := h.queue.Remove(id); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to remove from queue: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to remove from queue: %v", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, messageSuccessTemplate, "Removed from queue!")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Removed from queue!")
 }
 
 // DeleteSongHTMX deletes a song and returns HTML message
@@ -781,26 +787,26 @@ func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
 		return
 	}
 
 	result, err := h.db.Exec("DELETE FROM songs WHERE id = ?", id)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to delete song: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to delete song: %v", err))
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, messageSuccessTemplate, "Song deleted successfully!")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Song deleted successfully!")
 }
 
 // ==================== HELPER METHODS ====================

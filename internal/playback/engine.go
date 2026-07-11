@@ -106,7 +106,11 @@ func (e *Engine) playSong(song *queue.Song) {
 		log.Printf("Error creating FFmpeg streamer: %v", err)
 		return
 	}
-	defer streamer.Close()
+	defer func() {
+		if err := streamer.Close(); err != nil {
+			log.Printf("Warning: failed to close streamer: %v", err)
+		}
+	}()
 
 	buffer := make([]byte, 4096)
 	startTime := time.Now()

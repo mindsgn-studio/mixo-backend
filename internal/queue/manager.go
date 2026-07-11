@@ -37,7 +37,9 @@ func (m *Manager) Add(songID int) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get current max position
 	var maxPos int
@@ -67,7 +69,9 @@ func (m *Manager) Remove(id int) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get position of item to remove
 	var position int
@@ -106,7 +110,9 @@ func (m *Manager) GetNext() (*Song, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get first item in queue
 	var queueID, songID int

@@ -23,11 +23,12 @@ func RegisterRoutes(h *Handler, mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc("/admin/queue/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodPost:
 			h.AddToQueueHTMX(w, r)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			h.RemoveFromQueueHTMX(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
@@ -46,11 +47,12 @@ func RegisterRoutes(h *Handler, mux *http.ServeMux) {
 	// Songs
 	mux.HandleFunc("/api/songs", h.ListSongs)
 	mux.HandleFunc("/api/songs/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodPost:
 			h.AddSong(w, r)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			h.DeleteSong(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
@@ -61,11 +63,12 @@ func RegisterRoutes(h *Handler, mux *http.ServeMux) {
 	// Queue
 	mux.HandleFunc("/api/queue", h.GetQueue)
 	mux.HandleFunc("/api/queue/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodPost:
 			h.AddToQueue(w, r)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			h.RemoveFromQueue(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
