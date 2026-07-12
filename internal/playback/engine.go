@@ -94,17 +94,16 @@ func (e *Engine) playbackLoop() {
 			}
 
 			e.setCurrentSong(song)
-			e.playSong(song)
-			e.addToHistory(song, song.Duration)
+			actualDuration := e.playSong(song)
+			e.addToHistory(song, int(actualDuration.Seconds()))
 		}
 	}
 }
 
-func (e *Engine) playSong(song *queue.Song) {
+func (e *Engine) playSong(song *queue.Song) time.Duration {
 	streamer, err := NewFFmpegStreamer(song.Location)
 	if err != nil {
-		log.Printf("Error creating FFmpeg streamer: %v", err)
-		return
+		return 0
 	}
 	defer func() {
 		if err := streamer.Close(); err != nil {
@@ -118,22 +117,15 @@ func (e *Engine) playSong(song *queue.Song) {
 	for {
 		select {
 		case <-e.stopChan:
-			return
+			return time.Since(startTime)
 		default:
 			n, err := streamer.Read(buffer)
 			if err != nil {
+				elapsed := time.Since(startTime)
 				if err == io.EOF {
-					return
+					return elapsed
 				}
-				log.Printf("Error reading from stream: %v", err)
-				return
-			}
-
-			// Real-time throttling
-			elapsed := time.Since(startTime)
-			expectedDuration := time.Duration(song.Duration) * time.Second
-			if elapsed < expectedDuration {
-				time.Sleep(10 * time.Millisecond)
+				return elapsed
 			}
 
 			chunk := make([]byte, n)
@@ -142,7 +134,7 @@ func (e *Engine) playSong(song *queue.Song) {
 			select {
 			case e.chunkChan <- chunk:
 			case <-e.stopChan:
-				return
+				return time.Since(startTime)
 			}
 		}
 	}

@@ -16,9 +16,8 @@ func NewHandler(broadcaster *Broadcaster) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set headers for streaming
 	w.Header().Set("Content-Type", "audio/mpeg")
-	w.Header().Set("Transfer-Encoding", "chunked")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Create client
 	clientID := generateClientID()
@@ -30,7 +29,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Register client
 	h.broadcaster.Register(client)
-	defer h.broadcaster.Unregister(clientID)
+	defer func() {
+		h.broadcaster.Unregister(clientID)
+	}()
+
+	// Flush headers immediately
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 
 	// Keep connection open until client disconnects
 	<-client.Done

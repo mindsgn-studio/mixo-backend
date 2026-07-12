@@ -8,13 +8,38 @@ import (
 )
 
 type FFmpegStreamer struct {
-	cmd    *exec.Cmd
-	stdout io.ReadCloser
-	mu     sync.Mutex
+	cmd      *exec.Cmd
+	stdout   io.ReadCloser
+	filePath string
+	mu       sync.Mutex
+}
+
+func ffmpegArgs(filePath string) []string {
+	return []string{
+		"-re",
+		"-i", filePath,
+		"-map", "0:a:0",
+		"-vn",
+		"-f", "mp3",
+		"-acodec", "libmp3lame",
+		"-ar", "44100",
+		"-ac", "2",
+		"-b:a", "128k",
+		"-",
+	}
 }
 
 func NewFFmpegStreamer(filePath string) (*FFmpegStreamer, error) {
-	cmd := exec.Command("ffmpeg", "-i", filePath, "-f", "mp3", "-acodec", "libmp3lame", "-ar", "44100", "-ac", "2", "-b:a", "128k", "-")
+	// -re: output at native frame rate (real-time pacing)
+	// -i: input file
+	// -map 0:a:0 / -vn: stream audio only and ignore attached cover-art streams
+	// -f mp3: output format
+	// -acodec libmp3lame: MP3 encoder
+	// -ar 44100: sample rate
+	// -ac 2: stereo
+	// -b:a 128k: bitrate
+	// -: output to stdout
+	cmd := exec.Command("ffmpeg", ffmpegArgs(filePath)...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -26,8 +51,9 @@ func NewFFmpegStreamer(filePath string) (*FFmpegStreamer, error) {
 	}
 
 	return &FFmpegStreamer{
-		cmd:    cmd,
-		stdout: stdout,
+		cmd:      cmd,
+		stdout:   stdout,
+		filePath: filePath,
 	}, nil
 }
 

@@ -175,7 +175,6 @@ func (c *Crawler) removeMissingFiles() error {
 
 		if _, err := os.Stat(location); os.IsNotExist(err) {
 			idsToRemove = append(idsToRemove, id)
-			log.Printf("File missing, marking for removal: %s", location)
 		}
 	}
 
@@ -184,10 +183,6 @@ func (c *Crawler) removeMissingFiles() error {
 		if err != nil {
 			log.Printf("Warning: failed to remove song %d: %v", id, err)
 		}
-	}
-
-	if len(idsToRemove) > 0 {
-		log.Printf("Removed %d songs with missing files", len(idsToRemove))
 	}
 
 	return nil

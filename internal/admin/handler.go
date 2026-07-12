@@ -577,9 +577,10 @@ func (h *Handler) NowPlayingFragment(w http.ResponseWriter, r *http.Request) {
 	var songID int
 	_ = h.db.QueryRow("SELECT value FROM state WHERE key = 'current_song'").Scan(&songID)
 	etag := fmt.Sprintf(`"song-%d"`, songID)
+	clientETag := r.Header.Get("If-None-Match")
 
 	// Check If-None-Match header
-	if match := r.Header.Get("If-None-Match"); match == etag {
+	if match := clientETag; match == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}

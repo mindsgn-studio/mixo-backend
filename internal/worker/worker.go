@@ -85,12 +85,10 @@ func (w *QueueWorker) fillQueue() {
 
 	targetSeconds := w.targetHours * 3600
 	if queueDuration >= targetSeconds {
-		log.Printf("Queue duration (%ds) meets target (%ds)", queueDuration, targetSeconds)
 		return
 	}
 
 	needed := targetSeconds - queueDuration
-	log.Printf("Queue needs %ds more music (current: %ds, target: %ds)", needed, queueDuration, targetSeconds)
 
 	songsNeeded := needed / 180
 	if songsNeeded < 1 {
@@ -112,9 +110,6 @@ func (w *QueueWorker) fillQueue() {
 		added++
 	}
 
-	if added > 0 {
-		log.Printf("Added %d songs to queue", added)
-	}
 }
 
 func (w *QueueWorker) getQueueDuration() (int, error) {
