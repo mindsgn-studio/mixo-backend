@@ -41,6 +41,9 @@ cd mixo-backend
 
 # Run locally
 ./scripts/run.sh
+
+# Run deploy
+./scripts/deploy.sh
 ```
 
 ### Manual Setup
