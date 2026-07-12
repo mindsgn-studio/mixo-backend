@@ -246,7 +246,7 @@ This project uses GitHub Actions for continuous integration and deployment.
 
 | Secret | Description | Example |
 |--------|-------------|---------|
-| `DEPLOY_HOST` | Server IP or hostname | `192.168.1.100` |
+| `DEPLOY_HOST` | Server IP or hostname | `192.168.0.141` |
 | `DEPLOY_USERNAME` | SSH username on server | `deploy` |
 | `DEPLOY_SSH_KEY` | Private SSH key for authentication | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
 | `DEPLOY_PORT` | SSH port (optional, defaults to 22) | `22` |
