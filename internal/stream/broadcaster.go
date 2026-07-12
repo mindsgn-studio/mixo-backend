@@ -15,16 +15,16 @@ type Client struct {
 }
 
 type Broadcaster struct {
-	clients      map[string]*Client
-	mu           sync.RWMutex
-	chunkChan    <-chan []byte
+	clients       map[string]*Client
+	mu            sync.RWMutex
+	chunkChan     <-chan []byte
 	streamTimeout time.Duration
 }
 
 func New(chunkChan <-chan []byte, timeout time.Duration) *Broadcaster {
 	return &Broadcaster{
-		clients:      make(map[string]*Client),
-		chunkChan:    chunkChan,
+		clients:       make(map[string]*Client),
+		chunkChan:     chunkChan,
 		streamTimeout: timeout,
 	}
 }

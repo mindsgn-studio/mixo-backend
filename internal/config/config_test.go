@@ -7,8 +7,14 @@ import (
 
 func TestGetEnv(t *testing.T) {
 	// Test with existing env var
-	os.Setenv("TEST_VAR", "test_value")
-	defer os.Unsetenv("TEST_VAR")
+	if err := os.Setenv("TEST_VAR", "test_value"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_VAR"); err != nil {
+			t.Fatalf("Failed to unset env: %v", err)
+		}
+	}()
 
 	result := getEnv("TEST_VAR", "default")
 	if result != "test_value" {
@@ -24,8 +30,14 @@ func TestGetEnv(t *testing.T) {
 
 func TestGetEnvAsInt(t *testing.T) {
 	// Test with valid int env var
-	os.Setenv("TEST_INT", "42")
-	defer os.Unsetenv("TEST_INT")
+	if err := os.Setenv("TEST_INT", "42"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_INT"); err != nil {
+			t.Fatalf("Failed to unset env: %v", err)
+		}
+	}()
 
 	result := getEnvAsInt("TEST_INT", "10")
 	if result != 42 {
@@ -33,8 +45,14 @@ func TestGetEnvAsInt(t *testing.T) {
 	}
 
 	// Test with invalid int env var (should use default)
-	os.Setenv("TEST_INVALID", "not_a_number")
-	defer os.Unsetenv("TEST_INVALID")
+	if err := os.Setenv("TEST_INVALID", "not_a_number"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_INVALID"); err != nil {
+			t.Fatalf("Failed to unset env: %v", err)
+		}
+	}()
 
 	result = getEnvAsInt("TEST_INVALID", "10")
 	if result != 10 {

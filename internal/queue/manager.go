@@ -15,14 +15,14 @@ type Song struct {
 }
 
 type QueueItem struct {
-	ID     int
-	Song   Song
+	ID       int
+	Song     Song
 	Position int
 }
 
 type Manager struct {
-	db     *sql.DB
-	mu     sync.RWMutex
+	db *sql.DB
+	mu sync.RWMutex
 }
 
 func New(db *sql.DB) *Manager {
@@ -37,7 +37,9 @@ func (m *Manager) Add(songID int) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get current max position
 	var maxPos int
@@ -67,7 +69,9 @@ func (m *Manager) Remove(id int) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get position of item to remove
 	var position int
@@ -106,7 +110,9 @@ func (m *Manager) GetNext() (*Song, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get first item in queue
 	var queueID, songID int
@@ -158,7 +164,9 @@ func (m *Manager) GetAll() ([]QueueItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []QueueItem
 	for rows.Next() {

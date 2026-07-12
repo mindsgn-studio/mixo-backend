@@ -10,13 +10,21 @@ import (
 func TestRunMigrations(t *testing.T) {
 	// Create temporary database
 	tmpDB := "/tmp/test_radio.db"
-	defer os.Remove(tmpDB)
+	defer func() {
+		if err := os.Remove(tmpDB); err != nil {
+			t.Logf("Warning: failed to remove temp db: %v", err)
+		}
+	}()
 
 	db, err := New(tmpDB)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Warning: failed to close database: %v", err)
+		}
+	}()
 
 	// Check if tables exist
 	tables := []string{"songs", "queue", "history", "state"}

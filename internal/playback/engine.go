@@ -2,24 +2,24 @@ package playback
 
 import (
 	"database/sql"
+	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"io"
 	"log"
-	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"sync"
 	"time"
 )
 
 type Engine struct {
-	db         *sql.DB
-	queue      *queue.Manager
-	chunkChan  chan []byte
+	db          *sql.DB
+	queue       *queue.Manager
+	chunkChan   chan []byte
 	currentSong *queue.Song
-	mu         sync.RWMutex
-	running    bool
-	paused     bool
-	stopChan   chan struct{}
-	pauseChan  chan struct{}
-	resumeChan chan struct{}
+	mu          sync.RWMutex
+	running     bool
+	paused      bool
+	stopChan    chan struct{}
+	pauseChan   chan struct{}
+	resumeChan  chan struct{}
 }
 
 func New(db *sql.DB, q *queue.Manager) *Engine {
@@ -48,7 +48,7 @@ func (e *Engine) Start() {
 func (e *Engine) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.running {
 		close(e.stopChan)
 		e.running = false
@@ -106,7 +106,11 @@ func (e *Engine) playSong(song *queue.Song) {
 		log.Printf("Error creating FFmpeg streamer: %v", err)
 		return
 	}
-	defer streamer.Close()
+	defer func() {
+		if err := streamer.Close(); err != nil {
+			log.Printf("Warning: failed to close streamer: %v", err)
+		}
+	}()
 
 	buffer := make([]byte, 4096)
 	startTime := time.Now()
@@ -134,7 +138,7 @@ func (e *Engine) playSong(song *queue.Song) {
 
 			chunk := make([]byte, n)
 			copy(chunk, buffer[:n])
-			
+
 			select {
 			case e.chunkChan <- chunk:
 			case <-e.stopChan:
@@ -148,7 +152,7 @@ func (e *Engine) setCurrentSong(song *queue.Song) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.currentSong = song
-	
+
 	// Update state in database
 	_, err := e.db.Exec("INSERT OR REPLACE INTO state (key, value) VALUES ('current_song', ?)", song.ID)
 	if err != nil {

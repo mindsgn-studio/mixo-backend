@@ -2,9 +2,9 @@ package queue
 
 import (
 	"database/sql"
+	"github.com/mindsgn-studio/mixo-backend/internal/database"
 	"os"
 	"testing"
-	"github.com/mindsgn-studio/mixo-backend/internal/database"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -16,12 +16,16 @@ func setupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	
+
 	t.Cleanup(func() {
-		db.Close()
-		os.Remove(tmpDB)
+		if err := db.Close(); err != nil {
+			t.Logf("Warning: failed to close db: %v", err)
+		}
+		if err := os.Remove(tmpDB); err != nil {
+			t.Logf("Warning: failed to remove temp db: %v", err)
+		}
 	})
-	
+
 	return db.DB
 }
 
@@ -68,10 +72,16 @@ func TestManager_AddMultiple(t *testing.T) {
 	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 150)
 
 	qm := New(db)
-	
-	qm.Add(songID1)
-	qm.Add(songID2)
-	qm.Add(songID3)
+
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
+	if err := qm.Add(songID3); err != nil {
+		t.Fatalf("Failed to add song 3: %v", err)
+	}
 
 	items, err := qm.GetAll()
 	if err != nil {
@@ -102,9 +112,15 @@ func TestManager_Remove(t *testing.T) {
 	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 150)
 
 	qm := New(db)
-	qm.Add(songID1)
-	qm.Add(songID2)
-	qm.Add(songID3)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
+	if err := qm.Add(songID3); err != nil {
+		t.Fatalf("Failed to add song 3: %v", err)
+	}
 
 	items, _ := qm.GetAll()
 	queueID := items[1].ID // Remove middle item
@@ -139,8 +155,12 @@ func TestManager_GetNext(t *testing.T) {
 	songID2 := addTestSong(t, db, "Song 2", "Artist 2", "/path2.mp3", 200)
 
 	qm := New(db)
-	qm.Add(songID1)
-	qm.Add(songID2)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
 
 	// Get first song
 	song, err := qm.GetNext()
@@ -208,7 +228,9 @@ func TestManager_Length(t *testing.T) {
 	}
 
 	songID := addTestSong(t, db, "Test Song", "Test Artist", "/test.mp3", 180)
-	qm.Add(songID)
+	if err := qm.Add(songID); err != nil {
+		t.Fatalf("Failed to add to queue: %v", err)
+	}
 
 	length, err = qm.Length()
 	if err != nil {

@@ -15,7 +15,7 @@ type FFmpegStreamer struct {
 
 func NewFFmpegStreamer(filePath string) (*FFmpegStreamer, error) {
 	cmd := exec.Command("ffmpeg", "-i", filePath, "-f", "mp3", "-acodec", "libmp3lame", "-ar", "44100", "-ac", "2", "-b:a", "128k", "-")
-	
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -40,15 +40,15 @@ func (f *FFmpegStreamer) Read(p []byte) (int, error) {
 func (f *FFmpegStreamer) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	
+
 	if f.cmd != nil {
 		if err := f.cmd.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to kill ffmpeg: %w", err)
 		}
-		f.cmd.Wait()
+		_ = f.cmd.Wait()
 	}
 	if f.stdout != nil {
-		f.stdout.Close()
+		_ = f.stdout.Close()
 	}
 	return nil
 }

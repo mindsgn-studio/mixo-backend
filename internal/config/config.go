@@ -9,10 +9,13 @@ import (
 )
 
 type Config struct {
-	Port         string
-	SongDir      string
-	DBPath       string
+	Port          string
+	SongDir       string
+	DBPath        string
 	StreamTimeout int
+	CrawlDirs     string
+	QueueHours    int
+	CrawlInterval int
 }
 
 func Load() (*Config, error) {
@@ -24,12 +27,18 @@ func Load() (*Config, error) {
 	songDir := getEnv("SONG_DIR", "./songs")
 	dbPath := getEnv("DB_PATH", "./radio.db")
 	streamTimeout := getEnvAsInt("STREAM_TIMEOUT", "5")
+	crawlDirs := getEnv("CRAWL_DIRS", "")
+	queueHours := getEnvAsInt("QUEUE_HOURS", "24")
+	crawlInterval := getEnvAsInt("CRAWL_INTERVAL", "60")
 
 	return &Config{
-		Port:         port,
-		SongDir:      songDir,
-		DBPath:       dbPath,
+		Port:          port,
+		SongDir:       songDir,
+		DBPath:        dbPath,
 		StreamTimeout: streamTimeout,
+		CrawlDirs:     crawlDirs,
+		QueueHours:    queueHours,
+		CrawlInterval: crawlInterval,
 	}, nil
 }
 

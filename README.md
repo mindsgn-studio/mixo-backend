@@ -1,4 +1,4 @@
-# Go Internet Radio Streaming Server
+# Hackday Radio - Internet Radio Streaming Server
 
 A real-time internet radio streaming server built with Go that broadcasts a single continuous audio stream to all connected listeners.
 
@@ -9,6 +9,10 @@ A real-time internet radio streaming server built with Go that broadcasts a sing
 - **MP3 streaming over HTTP** - Chunked transfer encoding for real-time delivery
 - **Fan-out broadcaster pattern** - Efficiently serves multiple clients
 - **FIFO queue management** - Songs play in order they were added
+- **Music crawler** - Auto-scans directories for MP3s, extracts metadata (title, artist, album, cover art)
+- **Queue worker** - Automatically maintains 24h queue target by adding random songs
+- **HTMX admin interface** - Web-based UI for managing songs and queue
+- **Cover art support** - Extracts and displays album cover art
 - **Admin API** - RESTful endpoints for managing songs and queue
 - **SQLite persistence** - Stores songs, queue, history, and state
 - **FFmpeg integration** - Ensures consistent audio format
@@ -16,188 +20,216 @@ A real-time internet radio streaming server built with Go that broadcasts a sing
 
 ## Requirements
 
-- Go 1.21 or higher
+- Go 1.26 or higher
 - FFmpeg installed and available in PATH
 - SQLite (included via Go driver)
 
-## Installation
+## Quick Start
 
-1. Clone the repository:
+### Using Scripts (Recommended)
+
 ```bash
-git clone <repository-url>
-cd radio/backend
+# Clone the repository
+git clone https://github.com/mindsgn/hackday-radio.git
+cd mixo-backend
+
+# Run tests
+./scripts/test.sh
+
+# Build the binary
+./scripts/build.sh
+
+# Run locally
+./scripts/run.sh
 ```
 
-2. Install dependencies:
+### Manual Setup
+
 ```bash
+# Clone the repository
+git clone https://github.com/mindsgn/hackday-radio.git
+cd mixo-backend
+
+# Install dependencies
 go mod download
-```
 
-3. Ensure FFmpeg is installed:
-```bash
+# Ensure FFmpeg is installed
 ffmpeg -version
+
+# Create .env file (or copy from example)
+cp .env.example .env
+
+# Create songs directory and add MP3 files
+mkdir -p ../songs
+# Add your MP3 files to ../songs/
+
+# Run the server
+go run cmd/server/main.go
 ```
 
 ## Configuration
 
-Create a `.env` file in the `backend` directory:
+Create a `.env` file in the project root:
 
 ```env
 PORT=8080
 SONG_DIR=../songs
 DB_PATH=./radio.db
-STREAM_TIMEOUT=5
+STREAM_TIMEOUT=30
+CRAWL_DIRS=../songs
+QUEUE_HOURS=24
+CRAWL_INTERVAL=60
 ```
 
-- `PORT`: HTTP server port (default: 8080)
-- `SONG_DIR`: Directory containing MP3 files
-- `DB_PATH`: SQLite database file path
-- `STREAM_TIMEOUT`: Timeout for slow clients in seconds
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | HTTP server port | `8080` |
+| `SONG_DIR` | Directory for uploaded songs | `./songs` |
+| `DB_PATH` | SQLite database file path | `./radio.db` |
+| `STREAM_TIMEOUT` | Timeout for slow clients (seconds) | `5` |
+| `CRAWL_DIRS` | Comma-separated directories to scan for MP3s | `../songs` |
+| `QUEUE_HOURS` | Target queue duration in hours | `24` |
+| `CRAWL_INTERVAL` | How often to refill queue (minutes) | `60` |
 
 ## Usage
 
-### Start the server
+### Start the Server
 
 ```bash
-cd backend
+# Development mode (with live reload)
+./scripts/run.sh
+
+# Or manually
 go run cmd/server/main.go
 ```
 
-The server will start on the configured port with the following endpoints:
-- Stream: `http://localhost:8080/stream`
-- Admin API: `http://localhost:8080/api/*`
-- Health check: `http://localhost:8080/health`
+The server will:
+1. Scan `CRAWL_DIRS` for MP3 files and add them to the database
+2. Fill the queue to `QUEUE_HOURS` target
+3. Start the playback engine and stream broadcaster
+4. Begin accepting connections
 
-### Add songs
+### Endpoints
 
-```bash
-curl -X POST http://localhost:8080/api/songs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Song Title",
-    "artist": "Artist Name",
-    "duration": 180,
-    "location": "/path/to/song.mp3"
-  }'
-```
+| Endpoint | Description |
+|----------|-------------|
+| `http://localhost:8080/stream` | Audio stream (use with any media player) |
+| `http://localhost:8080/admin` | HTMX admin interface |
+| `http://localhost:8080/api/*` | REST API endpoints |
+| `http://localhost:8080/health` | Health check |
 
-### List songs
+### Listen to the Stream
 
 ```bash
-curl http://localhost:8080/api/songs
-```
-
-### Add song to queue
-
-```bash
-curl -X POST http://localhost:8080/api/queue/{song_id}
-```
-
-### Get current queue
-
-```bash
-curl http://localhost:8080/api/queue
-```
-
-### Get now playing
-
-```bash
-curl http://localhost:8080/api/now-playing
-```
-
-### Get playback history
-
-```bash
-curl http://localhost:8080/api/history?limit=50
-```
-
-### Listen to the stream
-
-Use any media player that supports HTTP streaming:
-```bash
+# Using ffplay
 ffplay http://localhost:8080/stream
+
+# Using VLC
+vlc http://localhost:8080/stream
+
+# Using mpv
+mpv http://localhost:8080/stream
+
+# Or open in browser
+open http://localhost:8080/stream
 ```
 
-Or open in a browser:
-```
-http://localhost:8080/stream
+### API Examples
+
+```bash
+# List songs
+curl http://localhost:8080/api/songs
+
+# Add song to queue
+curl -X POST http://localhost:8080/api/queue/1
+
+# Get current queue
+curl http://localhost:8080/api/queue
+
+# Get now playing
+curl http://localhost:8080/api/now-playing
+
+# Get playback history
+curl http://localhost:8080/api/history?limit=50
+
+# Upload a song
+curl -X POST http://localhost:8080/api/upload \
+  -F "file=@/path/to/song.mp3" \
+  -F "title=Song Title" \
+  -F "artist=Artist Name"
 ```
 
 ## Project Structure
 
 ```
-radio/
-├── backend/
-│   ├── cmd/server/
-│   │   └── main.go              # Application entry point
-│   ├── internal/
-│   │   ├── admin/
-│   │   │   ├── handler.go      # Admin API handlers
-│   │   │   └── routes.go       # Route registration
-│   │   ├── config/
-│   │   │   └── config.go       # Configuration loading
-│   │   ├── database/
-│   │   │   ├── migrations.go   # Database schema
-│   │   │   └── sqlite.go       # SQLite connection
-│   │   ├── playback/
-│   │   │   ├── engine.go       # Playback engine
-│   │   │   └── ffmpeg.go       # FFmpeg integration
-│   │   ├── queue/
-│   │   │   └── manager.go      # Queue management
-│   │   └── stream/
-│   │       ├── broadcaster.go   # Fan-out broadcaster
-│   │       └── handler.go       # HTTP stream handler
-│   ├── .env                    # Environment variables
-│   ├── go.mod                  # Go module definition
-│   ├── go.sum                  # Go dependencies
-│   └── article.md              # Core concepts documentation
-└── songs/                      # MP3 files directory
+mixo-backend/
+├── cmd/server/
+│   └── main.go                    # Application entry point
+├── internal/
+│   ├── admin/
+│   │   ├── handler.go             # Admin API handlers
+│   │   ├── routes.go              # Route registration
+│   │   └── templates.go           # HTML templates for HTMX
+│   ├── config/
+│   │   ├── config.go              # Configuration loading
+│   │   └── config_test.go         # Config tests
+│   ├── crawler/
+│   │   ├── crawler.go             # Music directory scanner
+│   │   └── crawler_test.go        # Crawler tests
+│   ├── database/
+│   │   ├── migrations.go          # Database schema
+│   │   ├── migrations_test.go     # Migration tests
+│   │   └── sqlite.go              # SQLite connection
+│   ├── playback/
+│   │   ├── engine.go              # Playback engine
+│   │   └── ffmpeg.go              # FFmpeg integration
+│   ├── queue/
+│   │   ├── manager.go             # Queue management
+│   │   └── manager_test.go        # Queue tests
+│   ├── stream/
+│   │   ├── broadcaster.go         # Fan-out broadcaster
+│   │   └── handler.go             # HTTP stream handler
+│   └── worker/
+│       ├── worker.go              # Queue maintenance worker
+│       └── worker_test.go         # Worker tests
+├── scripts/
+│   ├── test.sh                    # Run tests
+│   ├── build.sh                   # Build binary
+│   └── run.sh                     # Run locally
+├── .env                           # Environment variables (not committed)
+├── .env.example                   # Example environment file
+├── AGENTS.md                      # Development guidelines
+├── go.mod                         # Go module definition
+└── go.sum                         # Go dependencies
 ```
 
-## API Endpoints
+## Workers
 
-### Songs
-- `POST /api/songs` - Add a new song
-- `GET /api/songs` - List all songs
-- `DELETE /api/songs/:id` - Delete a song
+### Music Crawler
 
-### Queue
-- `POST /api/queue/:songId` - Add song to queue
-- `GET /api/queue` - Get current queue
-- `DELETE /api/queue/:id` - Remove from queue
+Scans directories for MP3 files and:
+- Extracts metadata (title, artist, album, cover art)
+- Adds new songs to the database
+- Removes songs with missing files from the database
 
-### Status
-- `GET /api/now-playing` - Get currently playing song
-- `GET /api/history` - Get playback history
+Runs on server startup.
 
-### Health
-- `GET /health` - Health check
+### Queue Worker
 
-## Testing
+Maintains the queue by:
+- Checking queue duration every `CRAWL_INTERVAL` minutes
+- Adding random songs when queue is below `QUEUE_HOURS` target
+- Ensuring continuous playback without gaps
 
-Run unit tests:
-```bash
-cd backend
-go test ./...
-```
+Runs continuously in the background.
 
-Run tests with coverage:
-```bash
-go test -cover ./...
-```
+## Scripts
 
-## Core Concepts
-
-For detailed explanations of the core concepts and patterns used in this project, see [article.md](backend/article.md).
-
-Topics covered:
-- Fan-out broadcaster pattern
-- SQLite for persistence
-- FFmpeg for audio streaming
-- Chunked HTTP transfer encoding
-- FIFO queue management
-- Slow client detection
-- Real-time throttling
+| Script | Description |
+|--------|-------------|
+| `./scripts/test.sh` | Run all tests with race detection |
+| `./scripts/build.sh` | Build the binary to `./bin/radio-server` |
+| `./scripts/run.sh` | Run the server locally |
 
 ## CI/CD Setup
 
@@ -207,12 +239,10 @@ This project uses GitHub Actions for continuous integration and deployment.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| **Staging to Main** | Push to `staging` | Lints, builds, tests, and creates a PR to `main` |
-| **Deploy to Production** | Push to `main` | Tests, builds, tags, deploys to server, restarts PM2 |
+| **Staging** | Push to `staging` | Lints, builds, tests, creates PR to `main` |
+| **Deploy** | Push to `main` | Tests, builds, tags, deploys to server, restarts PM2 |
 
 ### Required GitHub Secrets
-
-Go to your repository → **Settings** → **Secrets and variables** → **Actions** and add:
 
 | Secret | Description | Example |
 |--------|-------------|---------|
@@ -229,8 +259,8 @@ Go to your repository → **Settings** → **Secrets and variables** → **Actio
 sudo apt update && sudo apt upgrade -y
 
 # Install Go
-wget https://go.dev/dl/go1.23.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.23.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 
@@ -238,7 +268,7 @@ source ~/.bashrc
 sudo apt install ffmpeg -y
 
 # Install Node.js (for PM2)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # Install PM2 globally
@@ -255,7 +285,7 @@ mkdir -p /home/deploy/mixo-backend
 ### Server Prerequisites (macOS)
 
 ```bash
-# Install Homebrew (if not installed)
+# Install Homebrew (if not not installed)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install Go
@@ -274,59 +304,11 @@ npm install pm2 -g
 mkdir -p ~/mixo-backend
 ```
 
-### Generating SSH Key for Deployment
-
-On your **local machine**:
-
-```bash
-# Generate a dedicated deploy key
-ssh-keygen -t ed25519 -C "github-deploy" -f ~/.ssh/deploy_key -N ""
-
-# Copy the public key to your server
-ssh-copy-id -i ~/.ssh/deploy_key.pub user@your-server-ip
-```
-
-Then add the **private key** contents to the `DEPLOY_SSH_KEY` secret in GitHub:
-
-```bash
-# Print the private key to copy into GitHub Secrets
-cat ~/.ssh/deploy_key
-```
-
-### Running Locally
-
-**Ubuntu / macOS:**
-
-```bash
-# Clone the repo
-git clone https://github.com/mindsgn-studio/mixo-backend.git
-cd mixo-backend
-
-# Install dependencies
-go mod download
-
-# Create .env file
-cp .env.example .env  # or create manually
-
-# Run the server
-go run cmd/server/main.go
-
-# Run tests
-go test ./...
-
-# Build the binary
-go build -o radio-server ./cmd/server/
-
-# Run with PM2
-pm2 start ./radio-server --name mixo-backend
-pm2 logs mixo-backend
-```
-
 ### PM2 Commands
 
 ```bash
 # Start the app
-pm2 start ./radio-server --name mixo-backend
+pm2 start ./bin/radio-server --name mixo-backend
 
 # Stop the app
 pm2 stop mixo-backend
@@ -349,7 +331,7 @@ pm2 list
 
 ## Version
 
-Current version: v0.1.0
+Current version: v0.2.0
 
 ## License
 

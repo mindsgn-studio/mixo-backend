@@ -56,7 +56,7 @@ const adminPageTemplate = `<!DOCTYPE html>
         button.play:hover { background: #138496; }
         button.stop { background: #ffc107; color: #333; }
         button.stop:hover { background: #e0a800; }
-        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; color: #555; font-weight: 600; }
         tr:hover { background: #f8f9fa; }
@@ -70,6 +70,13 @@ const adminPageTemplate = `<!DOCTYPE html>
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 5px;
+            transition: opacity 0.3s ease;
+        }
+        .now-playing.htmx-settling {
+            opacity: 0.5;
+        }
+        .now-playing img {
+            transition: opacity 0.3s ease;
         }
         .now-playing h3 { margin: 0 0 10px 0; color: #1976d2; }
         .now-playing p { margin: 5px 0; color: #555; }
@@ -82,7 +89,7 @@ const adminPageTemplate = `<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/stream">Listen to Stream</a>
+            <a href="/listen">Listen to Stream</a>
         </div>
         <h1>Radio Admin</h1>
         <div id="message"></div>
@@ -90,7 +97,7 @@ const adminPageTemplate = `<!DOCTYPE html>
         <div class="section">
             <h2>Playback Control</h2>
             <div id="now-playing" hx-get="/admin/now-playing" hx-trigger="load, every 5s">
-                %s
+                {{NOW_PLAYING}}
             </div>
         </div>
 
@@ -108,14 +115,14 @@ const adminPageTemplate = `<!DOCTYPE html>
         <div class="section">
             <h2>Songs Library</h2>
             <div id="songs-table" hx-get="/admin/songs" hx-trigger="load, refresh">
-                %s
+                {{SONGS}}
             </div>
         </div>
 
         <div class="section">
             <h2>Playback Queue</h2>
             <div id="queue-table" hx-get="/admin/queue" hx-trigger="load, refresh, every 10s">
-                %s
+                {{QUEUE}}
             </div>
         </div>
     </div>
@@ -176,8 +183,10 @@ const queueRowTemplate = `<tr>
 const emptyQueueTemplate = `<div class="empty">Queue is empty</div>`
 
 const nowPlayingTemplate = `<div class="now-playing">
+    %s
     <h3>Now Playing</h3>
     <p><strong>%s</strong> by %s</p>
+    <p>%s</p>
     <p>Duration: %ds</p>
     <p>Status: <span class="status %s">%s</span></p>
     <form hx-post="/admin/play" hx-target="#now-playing" hx-swap="innerHTML">
