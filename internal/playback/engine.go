@@ -2,12 +2,18 @@ package playback
 
 import (
 	"database/sql"
-	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"io"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 )
+
+type audioStreamer interface {
+	Read([]byte) (int, error)
+	Close() error
+}
 
 type Engine struct {
 	db          *sql.DB
@@ -88,8 +94,7 @@ func (e *Engine) playbackLoop() {
 			}
 
 			if song == nil {
-				// Queue is empty, wait
-				time.Sleep(1 * time.Second)
+				e.playFallbackSilence()
 				continue
 			}
 
@@ -101,9 +106,9 @@ func (e *Engine) playbackLoop() {
 }
 
 func (e *Engine) playSong(song *queue.Song) {
-	streamer, err := NewFFmpegStreamer(song.Location)
+	streamer, paceByBytes, err := newSongStreamer(song)
 	if err != nil {
-		log.Printf("Error creating FFmpeg streamer: %v", err)
+		log.Printf("Error creating audio streamer: %v", err)
 		return
 	}
 	defer func() {
@@ -114,6 +119,7 @@ func (e *Engine) playSong(song *queue.Song) {
 
 	buffer := make([]byte, 4096)
 	startTime := time.Now()
+	var bytesSent int64
 
 	for {
 		select {
@@ -129,23 +135,115 @@ func (e *Engine) playSong(song *queue.Song) {
 				return
 			}
 
-			// Real-time throttling
-			elapsed := time.Since(startTime)
-			expectedDuration := time.Duration(song.Duration) * time.Second
-			if elapsed < expectedDuration {
-				time.Sleep(10 * time.Millisecond)
+			chunk := make([]byte, n)
+			copy(chunk, buffer[:n])
+			if !e.publishChunk(chunk) {
+				return
+			}
+
+			if paceByBytes {
+				bytesSent += int64(n)
+				if !e.waitForBitrate(startTime, bytesSent) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func newSongStreamer(song *queue.Song) (audioStreamer, bool, error) {
+	if song.Normalized {
+		streamer, err := NewFileStreamer(song.Location)
+		if err == nil {
+			return streamer, true, nil
+		}
+		log.Printf("Error opening normalized audio, falling back to FFmpeg: %v", err)
+	}
+
+	streamer, err := NewFFmpegStreamer(song.Location)
+	return streamer, false, err
+}
+
+func (e *Engine) playFallbackSilence() {
+	streamer, err := NewFFmpegSilenceStreamer()
+	if err != nil {
+		log.Printf("Error creating silence streamer: %v", err)
+		time.Sleep(1 * time.Second)
+		return
+	}
+	defer func() {
+		if err := streamer.Close(); err != nil {
+			log.Printf("Warning: failed to close silence streamer: %v", err)
+		}
+	}()
+
+	buffer := make([]byte, 4096)
+	checkQueue := time.NewTicker(1 * time.Second)
+	defer checkQueue.Stop()
+
+	for {
+		select {
+		case <-e.stopChan:
+			return
+		case <-checkQueue.C:
+			length, err := e.queue.Length()
+			if err == nil && length > 0 {
+				return
+			}
+			if err != nil {
+				log.Printf("Error checking queue during silence fallback: %v", err)
+			}
+		default:
+			n, err := streamer.Read(buffer)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("Error reading silence stream: %v", err)
+				}
+				return
 			}
 
 			chunk := make([]byte, n)
 			copy(chunk, buffer[:n])
-
-			select {
-			case e.chunkChan <- chunk:
-			case <-e.stopChan:
+			if !e.publishChunk(chunk) {
 				return
 			}
 		}
 	}
+}
+
+func (e *Engine) publishChunk(chunk []byte) bool {
+	select {
+	case e.chunkChan <- chunk:
+		return true
+	case <-e.stopChan:
+		return false
+	}
+}
+
+func (e *Engine) waitForBitrate(startTime time.Time, bytesSent int64) bool {
+	delay := bitrateDelay(startTime, bytesSent, time.Now())
+	if delay <= 0 {
+		return true
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return true
+	case <-e.stopChan:
+		return false
+	}
+}
+
+func bitrateDelay(startTime time.Time, bytesSent int64, now time.Time) time.Duration {
+	expectedElapsed := time.Duration((bytesSent * 8 * int64(time.Second)) / stationBitrateBitsPerSec)
+	actualElapsed := now.Sub(startTime)
+	if expectedElapsed <= actualElapsed {
+		return 0
+	}
+	return expectedElapsed - actualElapsed
 }
 
 func (e *Engine) setCurrentSong(song *queue.Song) {

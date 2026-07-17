@@ -103,6 +103,7 @@ func main() {
 	listenHandler := stream.NewListenHandler(db.DB)
 	mux.Handle("/listen", listenHandler)
 	mux.HandleFunc("/listen/now-playing", listenHandler.NowPlayingFragment)
+	mux.HandleFunc("/listen/events", listenHandler.NowPlayingEvents)
 	mux.HandleFunc("/cover/", listenHandler.CoverHandler)
 
 	// Admin API endpoints

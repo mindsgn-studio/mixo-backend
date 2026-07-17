@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS songs (
 	cover_art TEXT DEFAULT '',
 	duration INTEGER NOT NULL,
 	location TEXT NOT NULL,
+	source_location TEXT DEFAULT '',
+	normalized INTEGER NOT NULL DEFAULT 0,
 	created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,6 +43,7 @@ CREATE TABLE IF NOT EXISTS state (
 CREATE INDEX IF NOT EXISTS idx_queue_position ON queue(position);
 CREATE INDEX IF NOT EXISTS idx_history_played_at ON history(played_at);
 CREATE INDEX IF NOT EXISTS idx_songs_location ON songs(location);
+CREATE INDEX IF NOT EXISTS idx_songs_source_location ON songs(source_location);
 `
 
 func RunMigrations(db *sql.DB) error {
@@ -53,6 +56,9 @@ func RunMigrations(db *sql.DB) error {
 	alterStmts := []string{
 		"ALTER TABLE songs ADD COLUMN album TEXT DEFAULT ''",
 		"ALTER TABLE songs ADD COLUMN cover_art TEXT DEFAULT ''",
+		"ALTER TABLE songs ADD COLUMN source_location TEXT DEFAULT ''",
+		"ALTER TABLE songs ADD COLUMN normalized INTEGER NOT NULL DEFAULT 0",
+		"CREATE INDEX IF NOT EXISTS idx_songs_source_location ON songs(source_location)",
 	}
 	for _, stmt := range alterStmts {
 		_, _ = db.Exec(stmt) // Ignore errors if column already exists

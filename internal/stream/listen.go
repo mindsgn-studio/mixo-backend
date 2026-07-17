@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type ListenHandler struct {
@@ -48,6 +49,43 @@ func (h *ListenHandler) NowPlayingFragment(w http.ResponseWriter, r *http.Reques
 	_, _ = w.Write([]byte(h.renderNowPlaying()))
 }
 
+func (h *ListenHandler) NowPlayingEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	lastSongID := -1
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			songID := h.currentSongID()
+			if songID == lastSongID {
+				continue
+			}
+			lastSongID = songID
+			_, _ = fmt.Fprintf(w, "event: now-playing\ndata: %d\n\n", songID)
+			flusher.Flush()
+		}
+	}
+}
+
 func (h *ListenHandler) CoverHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -71,6 +109,14 @@ func (h *ListenHandler) CoverHandler(w http.ResponseWriter, r *http.Request) {
 	// Cache cover art for 1 hour (images don't change)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	http.ServeFile(w, r, coverArt)
+}
+
+func (h *ListenHandler) currentSongID() int {
+	var songID int
+	if err := h.db.QueryRow("SELECT value FROM state WHERE key = 'current_song'").Scan(&songID); err != nil {
+		return 0
+	}
+	return songID
 }
 
 func (h *ListenHandler) renderNowPlaying() string {
@@ -262,7 +308,7 @@ const listenPageTemplate = `<!DOCTYPE html>
     <div class="player">
         <div class="status-badge live">● LIVE</div>
 
-        <div id="now-playing" hx-get="/listen/now-playing" hx-trigger="load, every 5s" hx-swap="innerHTML">
+        <div id="now-playing" hx-get="/listen/now-playing" hx-trigger="load" hx-swap="innerHTML">
             <div class="cover-placeholder">🎵</div>
             <div class="song-info">
                 <div class="empty-state">Loading...</div>
@@ -280,6 +326,17 @@ const listenPageTemplate = `<!DOCTYPE html>
             <a href="/admin">Admin Panel</a>
         </div>
     </div>
+    <script>
+        const nowPlaying = document.getElementById('now-playing');
+        async function refreshNowPlaying() {
+            const response = await fetch('/listen/now-playing', { cache: 'no-store' });
+            if (response.ok) {
+                nowPlaying.innerHTML = await response.text();
+            }
+        }
+        const events = new EventSource('/listen/events');
+        events.addEventListener('now-playing', refreshNowPlaying);
+    </script>
 </body>
 </html>`
 

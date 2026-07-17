@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
+	"github.com/mindsgn-studio/mixo-backend/internal/playback"
 )
 
 type Crawler struct {
@@ -67,7 +68,7 @@ func (c *Crawler) processFile(filePath string) error {
 	}
 
 	var exists bool
-	err = c.db.QueryRow("SELECT EXISTS(SELECT 1 FROM songs WHERE location = ?)", absPath).Scan(&exists)
+	err = c.db.QueryRow("SELECT EXISTS(SELECT 1 FROM songs WHERE location = ? OR source_location = ?)", absPath, absPath).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to check song existence: %w", err)
 	}
@@ -126,9 +127,14 @@ func (c *Crawler) processFile(filePath string) error {
 		duration = 0
 	}
 
+	stationPath, err := playback.NormalizeToStationMP3(absPath, playback.StationCacheDir(c.songDir))
+	if err != nil {
+		return fmt.Errorf("failed to normalize audio: %w", err)
+	}
+
 	_, err = c.db.Exec(
-		"INSERT INTO songs (title, artist, album, cover_art, duration, location) VALUES (?, ?, ?, ?, ?, ?)",
-		title, artist, album, coverArt, duration, absPath,
+		"INSERT INTO songs (title, artist, album, cover_art, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		title, artist, album, coverArt, duration, stationPath, absPath, 1,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert song: %w", err)
@@ -155,7 +161,7 @@ func (c *Crawler) getDuration(filePath string) (int, error) {
 }
 
 func (c *Crawler) removeMissingFiles() error {
-	rows, err := c.db.Query("SELECT id, location FROM songs")
+	rows, err := c.db.Query("SELECT id, location, source_location FROM songs")
 	if err != nil {
 		return fmt.Errorf("failed to query songs: %w", err)
 	}
@@ -169,13 +175,18 @@ func (c *Crawler) removeMissingFiles() error {
 	for rows.Next() {
 		var id int
 		var location string
-		if err := rows.Scan(&id, &location); err != nil {
+		var sourceLocation string
+		if err := rows.Scan(&id, &location, &sourceLocation); err != nil {
 			continue
 		}
 
-		if _, err := os.Stat(location); os.IsNotExist(err) {
+		checkPath := location
+		if sourceLocation != "" {
+			checkPath = sourceLocation
+		}
+		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			idsToRemove = append(idsToRemove, id)
-			log.Printf("File missing, marking for removal: %s", location)
+			log.Printf("File missing, marking for removal: %s", checkPath)
 		}
 	}
 
@@ -288,13 +299,13 @@ func (c *Crawler) GetAllSongs() ([]SongInfo, error) {
 }
 
 type SongInfo struct {
-	ID               int
-	Title            string
-	Artist           string
-	Album            string
-	Duration         int
+	ID                int
+	Title             string
+	Artist            string
+	Album             string
+	Duration          int
 	DurationFormatted string
-	Location         string
+	Location          string
 }
 
 func formatDuration(seconds int) string {

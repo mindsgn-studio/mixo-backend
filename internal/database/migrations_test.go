@@ -38,4 +38,16 @@ func TestRunMigrations(t *testing.T) {
 			t.Errorf("Table %s does not exist", table)
 		}
 	}
+
+	columns := []string{"source_location", "normalized"}
+	for _, column := range columns {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('songs') WHERE name=?", column).Scan(&count)
+		if err != nil {
+			t.Errorf("Failed to check column %s: %v", column, err)
+		}
+		if count == 0 {
+			t.Errorf("Column %s does not exist", column)
+		}
+	}
 }
