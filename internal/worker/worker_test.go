@@ -23,12 +23,15 @@ func setupTestDB(t *testing.T) *sql.DB {
 		title TEXT NOT NULL DEFAULT '',
 		artist TEXT NOT NULL DEFAULT '',
 		album TEXT DEFAULT '',
-		cover_art TEXT DEFAULT '',
-		duration INTEGER NOT NULL DEFAULT 0,
-		location TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_songs_location ON songs(location);
+			cover_art TEXT DEFAULT '',
+			duration INTEGER NOT NULL DEFAULT 0,
+			location TEXT NOT NULL,
+			source_location TEXT DEFAULT '',
+			normalized INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_songs_location ON songs(location);
+		CREATE INDEX IF NOT EXISTS idx_songs_source_location ON songs(source_location);
 	CREATE TABLE IF NOT EXISTS queue (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		song_id INTEGER NOT NULL,

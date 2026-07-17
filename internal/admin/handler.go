@@ -94,8 +94,14 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location) VALUES (?, ?, ?, ?, ?, ?)",
-		req.Title, req.Artist, req.Album, req.CoverArt, req.Duration, req.Location)
+	stationPath, err := playback.NormalizeToStationMP3(req.Location, playback.StationCacheDir(h.cfg.SongDir))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to normalize audio: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		req.Title, req.Artist, req.Album, req.CoverArt, req.Duration, stationPath, req.Location, 1)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to add song: %v", err), http.StatusInternalServerError)
 		return
@@ -111,7 +117,7 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 		Album:    req.Album,
 		CoverArt: req.CoverArt,
 		Duration: req.Duration,
-		Location: req.Location,
+		Location: stationPath,
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
@@ -459,9 +465,15 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stationPath, err := playback.NormalizeToStationMP3(filePath, playback.StationCacheDir(h.cfg.SongDir))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to normalize audio: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	// Save to database
-	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location) VALUES (?, ?, ?, ?, ?, ?)",
-		title, artist, album, coverArt, duration, filePath)
+	result, err := h.db.Exec("INSERT INTO songs (title, artist, album, cover_art, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		title, artist, album, coverArt, duration, stationPath, filePath, 1)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to add song: %v", err), http.StatusInternalServerError)
 		return
@@ -477,7 +489,7 @@ func (h *Handler) UploadSong(w http.ResponseWriter, r *http.Request) {
 		Album:    album,
 		CoverArt: coverArt,
 		Duration: duration,
-		Location: filePath,
+		Location: stationPath,
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
@@ -742,9 +754,16 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stationPath, err := playback.NormalizeToStationMP3(filePath, playback.StationCacheDir(h.cfg.SongDir))
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to normalize audio: %v", err))
+		return
+	}
+
 	// Save to database
-	_, err = h.db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES (?, ?, ?, ?)",
-		title, artist, duration, filePath)
+	_, err = h.db.Exec("INSERT INTO songs (title, artist, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?)",
+		title, artist, duration, stationPath, filePath, 1)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add song: %v", err))

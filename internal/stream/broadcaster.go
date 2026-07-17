@@ -1,17 +1,22 @@
 package stream
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 )
 
+const (
+	clientBufferSize    = 64
+	startupBufferChunks = 12
+)
+
 type Client struct {
 	ID     string
 	Writer http.ResponseWriter
 	Done   chan struct{}
+	Chunks chan []byte
 }
 
 type Broadcaster struct {
@@ -19,6 +24,7 @@ type Broadcaster struct {
 	mu            sync.RWMutex
 	chunkChan     <-chan []byte
 	streamTimeout time.Duration
+	startupBuffer [][]byte
 }
 
 func New(chunkChan <-chan []byte, timeout time.Duration) *Broadcaster {
@@ -26,14 +32,32 @@ func New(chunkChan <-chan []byte, timeout time.Duration) *Broadcaster {
 		clients:       make(map[string]*Client),
 		chunkChan:     chunkChan,
 		streamTimeout: timeout,
+		startupBuffer: make([][]byte, 0, startupBufferChunks),
 	}
 }
 
 func (b *Broadcaster) Register(client *Client) {
+	if client.Done == nil {
+		client.Done = make(chan struct{})
+	}
+	if client.Chunks == nil {
+		client.Chunks = make(chan []byte, clientBufferSize)
+	}
+
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	for _, chunk := range b.startupBuffer {
+		select {
+		case client.Chunks <- chunk:
+		default:
+			log.Printf("Startup stream buffer overflow for client %s", client.ID)
+		}
+	}
 	b.clients[client.ID] = client
-	log.Printf("Client registered: %s (total: %d)", client.ID, len(b.clients))
+	total := len(b.clients)
+	b.mu.Unlock()
+
+	go b.writeClient(client)
+	log.Printf("Client registered: %s (total: %d)", client.ID, total)
 }
 
 func (b *Broadcaster) Unregister(clientID string) {
@@ -52,51 +76,70 @@ func (b *Broadcaster) Start() {
 
 func (b *Broadcaster) broadcastLoop() {
 	for chunk := range b.chunkChan {
-		b.mu.RLock()
-		clients := make([]*Client, 0, len(b.clients))
-		for _, client := range b.clients {
-			clients = append(clients, client)
-		}
-		b.mu.RUnlock()
+		b.mu.Lock()
+		b.recordStartupChunk(chunk)
 
-		for _, client := range clients {
+		slowClients := make([]string, 0)
+		for _, client := range b.clients {
 			select {
 			case <-client.Done:
-				b.Unregister(client.ID)
 				continue
+			case client.Chunks <- chunk:
 			default:
-				if !b.writeToClient(client, chunk) {
-					b.Unregister(client.ID)
-				}
+				slowClients = append(slowClients, client.ID)
+			}
+		}
+		b.mu.Unlock()
+
+		for _, clientID := range slowClients {
+			log.Printf("Client %s fell behind stream buffer", clientID)
+			b.Unregister(clientID)
+		}
+	}
+}
+
+func (b *Broadcaster) recordStartupChunk(chunk []byte) {
+	copied := make([]byte, len(chunk))
+	copy(copied, chunk)
+	b.startupBuffer = append(b.startupBuffer, copied)
+	if len(b.startupBuffer) > startupBufferChunks {
+		copy(b.startupBuffer, b.startupBuffer[len(b.startupBuffer)-startupBufferChunks:])
+		b.startupBuffer = b.startupBuffer[:startupBufferChunks]
+	}
+}
+
+func (b *Broadcaster) writeClient(client *Client) {
+	for {
+		select {
+		case <-client.Done:
+			return
+		case chunk := <-client.Chunks:
+			if !b.writeToClient(client, chunk) {
+				b.Unregister(client.ID)
+				return
 			}
 		}
 	}
 }
 
 func (b *Broadcaster) writeToClient(client *Client, chunk []byte) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), b.streamTimeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := client.Writer.Write(chunk)
-		if f, ok := client.Writer.(http.Flusher); ok {
-			f.Flush()
-		}
-		done <- err
-	}()
-
-	select {
-	case <-ctx.Done():
-		log.Printf("Client %s timed out", client.ID)
-		return false
-	case err := <-done:
-		if err != nil {
-			log.Printf("Error writing to client %s: %v", client.ID, err)
-			return false
-		}
-		return true
+	controller := http.NewResponseController(client.Writer)
+	if b.streamTimeout > 0 {
+		_ = controller.SetWriteDeadline(time.Now().Add(b.streamTimeout))
+		defer func() {
+			_ = controller.SetWriteDeadline(time.Time{})
+		}()
 	}
+
+	if _, err := client.Writer.Write(chunk); err != nil {
+		log.Printf("Error writing to client %s: %v", client.ID, err)
+		return false
+	}
+	if err := controller.Flush(); err != nil {
+		log.Printf("Error flushing client %s: %v", client.ID, err)
+		return false
+	}
+	return true
 }
 
 func (b *Broadcaster) ClientCount() int {

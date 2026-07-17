@@ -7,11 +7,12 @@ import (
 )
 
 type Song struct {
-	ID       int
-	Title    string
-	Artist   string
-	Duration int
-	Location string
+	ID         int
+	Title      string
+	Artist     string
+	Duration   int
+	Location   string
+	Normalized bool
 }
 
 type QueueItem struct {
@@ -126,11 +127,13 @@ func (m *Manager) GetNext() (*Song, error) {
 
 	// Get song details
 	var song Song
-	err = tx.QueryRow("SELECT id, title, artist, duration, location FROM songs WHERE id = ?", songID).
-		Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location)
+	var normalized int
+	err = tx.QueryRow("SELECT id, title, artist, duration, location, normalized FROM songs WHERE id = ?", songID).
+		Scan(&song.ID, &song.Title, &song.Artist, &song.Duration, &song.Location, &normalized)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get song details: %w", err)
 	}
+	song.Normalized = normalized != 0
 
 	// Remove from queue
 	_, err = tx.Exec("DELETE FROM queue WHERE id = ?", queueID)
