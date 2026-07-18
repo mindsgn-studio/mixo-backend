@@ -22,15 +22,21 @@ func setupTestDB(t *testing.T) *sql.DB {
 		title TEXT NOT NULL DEFAULT '',
 		artist TEXT NOT NULL DEFAULT '',
 		album TEXT DEFAULT '',
-			cover_art TEXT DEFAULT '',
-			duration INTEGER NOT NULL DEFAULT 0,
-			location TEXT NOT NULL,
-			source_location TEXT DEFAULT '',
-			normalized INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_songs_location ON songs(location);
-		CREATE INDEX IF NOT EXISTS idx_songs_source_location ON songs(source_location);
+		genre TEXT DEFAULT '',
+		track_number INTEGER DEFAULT 0,
+		track_total INTEGER DEFAULT 0,
+		cover_art TEXT DEFAULT '',
+		duration INTEGER NOT NULL DEFAULT 0,
+		location TEXT NOT NULL,
+		source_location TEXT DEFAULT '',
+		normalized INTEGER NOT NULL DEFAULT 0,
+		status TEXT DEFAULT 'deleted',
+		added_to_library_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_songs_location ON songs(location);
+	CREATE INDEX IF NOT EXISTS idx_songs_source_location ON songs(source_location);
+	CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
 	CREATE TABLE IF NOT EXISTS queue (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		song_id INTEGER NOT NULL,
@@ -42,6 +48,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		song_id INTEGER NOT NULL,
 		played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		duration_played INTEGER NOT NULL DEFAULT 0,
 		FOREIGN KEY (song_id) REFERENCES songs(id) ON DELETE CASCADE
 	);
 	CREATE TABLE IF NOT EXISTS state (
@@ -151,7 +158,7 @@ func TestGetRandomSongs(t *testing.T) {
 	c := New(db, t.TempDir())
 
 	for i := 0; i < 10; i++ {
-		_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES (?, 'Artist', 180, ?)",
+		_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES (?, 'Artist', 180, ?, 'library')",
 			"Song"+string(rune('A'+i)), "/tmp/song"+string(rune('A'+i))+".mp3")
 	}
 
@@ -168,7 +175,7 @@ func TestGetRandomSongs_RequestMoreThanAvailable(t *testing.T) {
 	db := setupTestDB(t)
 	c := New(db, t.TempDir())
 
-	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist', 180, '/tmp/song1.mp3')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('Song1', 'Artist', 180, '/tmp/song1.mp3', 'library')")
 
 	songs, err := c.GetRandomSongs(5)
 	if err != nil {
@@ -207,8 +214,8 @@ func TestGetAllSongs(t *testing.T) {
 	db := setupTestDB(t)
 	c := New(db, t.TempDir())
 
-	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location) VALUES ('Song1', 'Artist1', 'Album1', 180, '/tmp/song1.mp3')")
-	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location) VALUES ('Song2', 'Artist2', 'Album2', 240, '/tmp/song2.mp3')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('Song1', 'Artist1', 'Album1', 'Rock', 1, 180, '/tmp/song1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('Song2', 'Artist2', 'Album2', 'Pop', 2, 240, '/tmp/song2.mp3', 'library')")
 
 	songs, err := c.GetAllSongs()
 	if err != nil {
@@ -224,6 +231,12 @@ func TestGetAllSongs(t *testing.T) {
 	}
 	if songs[0].Album != "Album1" {
 		t.Errorf("expected Album1, got %s", songs[0].Album)
+	}
+	if songs[0].Genre != "Rock" {
+		t.Errorf("expected Rock, got %s", songs[0].Genre)
+	}
+	if songs[0].TrackNumber != 1 {
+		t.Errorf("expected track 1, got %d", songs[0].TrackNumber)
 	}
 	if songs[1].Artist != "Artist2" {
 		t.Errorf("expected Artist2, got %s", songs[1].Artist)
@@ -301,12 +314,13 @@ func TestRemoveMissingFiles(t *testing.T) {
 	db := setupTestDB(t)
 	c := New(db, t.TempDir())
 
-	// Insert a song with a non-existent location
-	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist', 180, '/nonexistent/path.mp3')")
+	// Insert a song with a non-existent location, status='library'
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('Song1', 'Artist', 180, '/nonexistent/path.mp3', 'library')")
 
-	count, _ := c.GetSongCount()
-	if count != 1 {
-		t.Fatalf("expected 1 song before removal, got %d", count)
+	var status string
+	_ = db.QueryRow("SELECT status FROM songs WHERE title = 'Song1'").Scan(&status)
+	if status != "library" {
+		t.Fatalf("expected status 'library' before removal, got %s", status)
 	}
 
 	err := c.removeMissingFiles()
@@ -314,9 +328,15 @@ func TestRemoveMissingFiles(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	count, _ = c.GetSongCount()
-	if count != 0 {
-		t.Errorf("expected 0 songs after removal, got %d", count)
+	// Song should still exist but with status='deleted'
+	_ = db.QueryRow("SELECT status FROM songs WHERE title = 'Song1'").Scan(&status)
+	if status != "deleted" {
+		t.Errorf("expected status 'deleted' after removal, got %s", status)
+	}
+
+	count, _ := c.GetSongCount()
+	if count != 1 {
+		t.Errorf("expected 1 song to remain (soft deleted), got %d", count)
 	}
 }
 
@@ -332,11 +352,17 @@ func TestRemoveMissingFiles_KeepsExisting(t *testing.T) {
 	}
 
 	absPath, _ := filepath.Abs(mp3File)
-	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist', 180, ?)", absPath)
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('Song1', 'Artist', 180, ?, 'library')", absPath)
 
 	err := c.removeMissingFiles()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var status string
+	_ = db.QueryRow("SELECT status FROM songs WHERE title = 'Song1'").Scan(&status)
+	if status != "library" {
+		t.Errorf("expected status to remain 'library', got %s", status)
 	}
 
 	count, _ := c.GetSongCount()

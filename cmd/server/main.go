@@ -20,7 +20,7 @@ import (
 	"github.com/mindsgn-studio/mixo-backend/internal/worker"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 func main() {
 	log.Printf("Starting Radio Server v%s", version)

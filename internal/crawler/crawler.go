@@ -97,12 +97,21 @@ func (c *Crawler) processFile(filePath string) error {
 	title := ""
 	artist := ""
 	album := ""
+	genre := ""
+	trackNumber := 0
+	trackTotal := 0
 	coverArt := ""
 
 	if metadata != nil {
 		title = metadata.Title()
 		artist = metadata.Artist()
 		album = metadata.Album()
+		genre = metadata.Genre()
+
+		// Extract track number and total
+		track, total := metadata.Track()
+		trackNumber = track
+		trackTotal = total
 
 		// Extract cover art
 		picture := metadata.Picture()
@@ -136,14 +145,14 @@ func (c *Crawler) processFile(filePath string) error {
 	}
 
 	_, err = c.db.Exec(
-		"INSERT INTO songs (title, artist, album, cover_art, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		title, artist, album, coverArt, duration, stationPath, absPath, 1,
+		"INSERT INTO songs (title, artist, album, genre, track_number, track_total, cover_art, duration, location, source_location, normalized, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deleted')",
+		title, artist, album, genre, trackNumber, trackTotal, coverArt, duration, stationPath, absPath, 1,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert song: %w", err)
 	}
 
-	log.Printf("Added song: %s - %s (%ds) from %s", artist, title, duration, absPath)
+	log.Printf("Added song: %s - %s (%ds) from %s [status=deleted]", artist, title, duration, absPath)
 	return nil
 }
 
@@ -164,7 +173,7 @@ func (c *Crawler) getDuration(filePath string) (int, error) {
 }
 
 func (c *Crawler) removeMissingFiles() error {
-	rows, err := c.db.Query("SELECT id, location, source_location FROM songs")
+	rows, err := c.db.Query("SELECT id, location, source_location FROM songs WHERE status != 'deleted'")
 	if err != nil {
 		return fmt.Errorf("failed to query songs: %w", err)
 	}
@@ -174,7 +183,7 @@ func (c *Crawler) removeMissingFiles() error {
 		}
 	}()
 
-	var idsToRemove []int
+	var idsToSoftDelete []int
 	for rows.Next() {
 		var id int
 		var location string
@@ -188,20 +197,20 @@ func (c *Crawler) removeMissingFiles() error {
 			checkPath = sourceLocation
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
-			idsToRemove = append(idsToRemove, id)
-			log.Printf("File missing, marking for removal: %s", checkPath)
+			idsToSoftDelete = append(idsToSoftDelete, id)
+			log.Printf("File missing, marking for soft delete: %s", checkPath)
 		}
 	}
 
-	for _, id := range idsToRemove {
-		_, err := c.db.Exec("DELETE FROM songs WHERE id = ?", id)
+	for _, id := range idsToSoftDelete {
+		_, err := c.db.Exec("UPDATE songs SET status = 'deleted' WHERE id = ?", id)
 		if err != nil {
-			log.Printf("Warning: failed to remove song %d: %v", id, err)
+			log.Printf("Warning: failed to soft delete song %d: %v", id, err)
 		}
 	}
 
-	if len(idsToRemove) > 0 {
-		log.Printf("Removed %d songs with missing files", len(idsToRemove))
+	if len(idsToSoftDelete) > 0 {
+		log.Printf("Soft deleted %d songs with missing files", len(idsToSoftDelete))
 	}
 
 	return nil
@@ -230,7 +239,7 @@ func (c *Crawler) GetTotalDuration(dirs []string) (int, error) {
 }
 
 func (c *Crawler) GetRandomSongs(count int) ([]int, error) {
-	rows, err := c.db.Query("SELECT id FROM songs ORDER BY RANDOM() LIMIT ?", count)
+	rows, err := c.db.Query("SELECT id FROM songs WHERE status = 'library' ORDER BY RANDOM() LIMIT ?", count)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query random songs: %w", err)
 	}
@@ -278,7 +287,7 @@ func (c *Crawler) GetTotalDurationFormatted() (string, error) {
 }
 
 func (c *Crawler) GetAllSongs() ([]SongInfo, error) {
-	rows, err := c.db.Query("SELECT id, title, artist, album, duration, location FROM songs ORDER BY artist, title")
+	rows, err := c.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, duration, location, status FROM songs ORDER BY artist, title")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query songs: %w", err)
 	}
@@ -291,7 +300,7 @@ func (c *Crawler) GetAllSongs() ([]SongInfo, error) {
 	var songs []SongInfo
 	for rows.Next() {
 		var s SongInfo
-		if err := rows.Scan(&s.ID, &s.Title, &s.Artist, &s.Album, &s.Duration, &s.Location); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &s.Artist, &s.Album, &s.Genre, &s.TrackNumber, &s.TrackTotal, &s.Duration, &s.Location, &s.Status); err != nil {
 			continue
 		}
 		s.DurationFormatted = formatDuration(s.Duration)
@@ -306,9 +315,13 @@ type SongInfo struct {
 	Title             string
 	Artist            string
 	Album             string
+	Genre             string
+	TrackNumber       int
+	TrackTotal        int
 	Duration          int
 	DurationFormatted string
 	Location          string
+	Status            string
 }
 
 func formatDuration(seconds int) string {

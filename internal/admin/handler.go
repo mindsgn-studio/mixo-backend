@@ -50,13 +50,18 @@ type AddSongRequest struct {
 }
 
 type SongResponse struct {
-	ID       int    `json:"id"`
-	Title    string `json:"title"`
-	Artist   string `json:"artist"`
-	Album    string `json:"album"`
-	CoverArt string `json:"cover_art"`
-	Duration int    `json:"duration"`
-	Location string `json:"location"`
+	ID           int    `json:"id"`
+	Title        string `json:"title"`
+	Artist       string `json:"artist"`
+	Album        string `json:"album"`
+	Genre        string `json:"genre"`
+	TrackNumber  int    `json:"track_number"`
+	TrackTotal   int    `json:"track_total"`
+	CoverArt     string `json:"cover_art"`
+	Duration     int    `json:"duration"`
+	DurationFmt  string `json:"duration_fmt"`
+	Location     string `json:"location"`
+	Status       string `json:"status"`
 }
 
 type QueueItemResponse struct {
@@ -123,14 +128,14 @@ func (h *Handler) AddSong(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ListSongs returns all songs in the database
+// ListSongs returns all library songs in the database
 func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	rows, err := h.db.Query("SELECT id, title, artist, album, cover_art, duration, location FROM songs ORDER BY created_at DESC")
+	rows, err := h.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE status = 'library' ORDER BY artist, title")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list songs: %v", err), http.StatusInternalServerError)
 		return
@@ -144,11 +149,12 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 	var songs []SongResponse
 	for rows.Next() {
 		var song SongResponse
-		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to scan song: %v", err), http.StatusInternalServerError)
 			return
 		}
+		song.DurationFmt = formatDuration(song.Duration)
 		songs = append(songs, song)
 	}
 
@@ -158,7 +164,7 @@ func (h *Handler) ListSongs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DeleteSong removes a song from the database
+// DeleteSong soft-deletes a song from the database
 func (h *Handler) DeleteSong(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -172,7 +178,7 @@ func (h *Handler) DeleteSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.db.Exec("DELETE FROM songs WHERE id = ?", id)
+	result, err := h.db.Exec("UPDATE songs SET status = 'deleted' WHERE id = ?", id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to delete song: %v", err), http.StatusInternalServerError)
 		return
@@ -295,8 +301,8 @@ func (h *Handler) NowPlaying(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var song SongResponse
-	err = h.db.QueryRow("SELECT id, title, artist, album, cover_art, duration, location FROM songs WHERE id = ?", songID).
-		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
+	err = h.db.QueryRow("SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE id = ?", songID).
+		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get song details: %v", err), http.StatusInternalServerError)
 		return
@@ -761,8 +767,8 @@ func (h *Handler) UploadSongHTMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save to database
-	_, err = h.db.Exec("INSERT INTO songs (title, artist, duration, location, source_location, normalized) VALUES (?, ?, ?, ?, ?, ?)",
+	// Save to database (manual uploads go directly to library)
+	_, err = h.db.Exec("INSERT INTO songs (title, artist, duration, location, source_location, normalized, status, added_to_library_at) VALUES (?, ?, ?, ?, ?, ?, 'library', CURRENT_TIMESTAMP)",
 		title, artist, duration, stationPath, filePath, 1)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
@@ -888,7 +894,7 @@ func (h *Handler) RescanHTMX(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("Rescan complete! %d songs in library.", count))
 }
 
-// DeleteSongHTMX deletes a song from database only (keeps file on disk)
+// DeleteSongHTMX soft-deletes a song from library (keeps file on disk, sets status='deleted')
 func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -910,11 +916,11 @@ func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete from database only (not from filesystem)
-	result, err := h.db.Exec("DELETE FROM songs WHERE id = ?", id)
+	// Soft delete: set status to 'deleted' (keeps file on disk)
+	result, err := h.db.Exec("UPDATE songs SET status = 'deleted' WHERE id = ?", id)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to delete song: %v", err))
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to remove song: %v", err))
 		return
 	}
 
@@ -929,10 +935,69 @@ func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Song removed from library!")
 }
 
-// ==================== HELPER METHODS ====================
+// ==================== LIBRARY HANDLERS ====================
 
-func (h *Handler) renderSongsFragment() string {
-	rows, err := h.db.Query("SELECT id, title, artist, album, cover_art, duration, location FROM songs ORDER BY created_at DESC")
+// LibraryPage renders the full music library page
+func (h *Handler) LibraryPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	libraryHTML := h.renderLibraryFragment("", "", "")
+
+	w.Header().Set("Content-Type", "text/html")
+	result := libraryPageTemplate
+	result = strings.Replace(result, "{{LIBRARY}}", libraryHTML, 1)
+	fmt.Fprint(w, result) //nolint:errcheck
+}
+
+// LibrarySongsFragment returns searchable library songs as HTML
+func (h *Handler) LibrarySongsFragment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := r.URL.Query().Get("q")
+	genre := r.URL.Query().Get("genre")
+	sort := r.URL.Query().Get("sort")
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = w.Write([]byte(h.renderLibraryFragment(query, genre, sort)))
+}
+
+func (h *Handler) renderLibraryFragment(query, genre, sort string) string {
+	sqlQuery := "SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE status = 'library'"
+	var args []interface{}
+
+	if query != "" {
+		likeQuery := "%" + query + "%"
+		sqlQuery += " AND (title LIKE ? OR artist LIKE ? OR album LIKE ? OR genre LIKE ?)"
+		args = append(args, likeQuery, likeQuery, likeQuery, likeQuery)
+	}
+
+	if genre != "" {
+		sqlQuery += " AND genre = ?"
+		args = append(args, genre)
+	}
+
+	switch sort {
+	case "title":
+		sqlQuery += " ORDER BY title"
+	case "artist":
+		sqlQuery += " ORDER BY artist, title"
+	case "album":
+		sqlQuery += " ORDER BY album, title"
+	case "genre":
+		sqlQuery += " ORDER BY genre, artist, title"
+	case "duration":
+		sqlQuery += " ORDER BY duration DESC"
+	default:
+		sqlQuery += " ORDER BY artist, title"
+	}
+
+	rows, err := h.db.Query(sqlQuery, args...)
 	if err != nil {
 		return emptySongsTemplate
 	}
@@ -944,11 +1009,275 @@ func (h *Handler) renderSongsFragment() string {
 	count := 0
 	for rows.Next() {
 		var song SongResponse
-		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
 		if err != nil {
 			continue
 		}
-		rowsHTML += fmt.Sprintf(songRowTemplate, song.Title, song.Artist, song.Duration, song.ID, song.ID)
+		song.DurationFmt = formatDuration(song.Duration)
+		rowsHTML += fmt.Sprintf(librarySongRowTemplate, song.Title, song.Artist, song.Album, song.Genre, song.TrackNumber, song.DurationFmt, song.ID, song.ID)
+		count++
+	}
+
+	if count == 0 {
+		return emptyLibraryTemplate
+	}
+
+	return fmt.Sprintf(libraryTableTemplate, rowsHTML)
+}
+
+// AddToLibraryHTMX adds a song to the library
+func (h *Handler) AddToLibraryHTMX(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := r.URL.Path
+	prefix := "/admin/library/"
+	suffix := "/add"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	idStr := path[len(prefix) : len(path)-len(suffix)]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
+		return
+	}
+
+	var title string
+	err = h.db.QueryRow("SELECT title FROM songs WHERE id = ?", id).Scan(&title)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		return
+	}
+
+	result, err := h.db.Exec("UPDATE songs SET status = 'library', added_to_library_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to add to library: %v", err))
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("'%s' added to library!", title))
+}
+
+// RemoveFromLibraryHTMX removes a song from the library (soft delete)
+func (h *Handler) RemoveFromLibraryHTMX(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := r.URL.Path
+	prefix := "/admin/library/"
+	suffix := "/remove"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	idStr := path[len(prefix) : len(path)-len(suffix)]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Invalid song ID")
+		return
+	}
+
+	var title string
+	err = h.db.QueryRow("SELECT title FROM songs WHERE id = ?", id).Scan(&title)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		return
+	}
+
+	result, err := h.db.Exec("UPDATE songs SET status = 'deleted' WHERE id = ?", id)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Failed to remove from library: %v", err))
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Song not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("'%s' removed from library!", title))
+}
+
+// ==================== DELETED SONGS HANDLERS ====================
+
+// DeletedPage renders the deleted songs page
+func (h *Handler) DeletedPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	deletedHTML := h.renderDeletedFragment()
+
+	w.Header().Set("Content-Type", "text/html")
+	result := deletedPageTemplate
+	result = strings.Replace(result, "{{DELETED}}", deletedHTML, 1)
+	fmt.Fprint(w, result) //nolint:errcheck
+}
+
+// DeletedSongsFragment returns deleted songs as HTML
+func (h *Handler) DeletedSongsFragment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = w.Write([]byte(h.renderDeletedFragment()))
+}
+
+func (h *Handler) renderDeletedFragment() string {
+	rows, err := h.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE status = 'deleted' ORDER BY artist, title")
+	if err != nil {
+		return emptyDeletedTemplate
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var rowsHTML string
+	count := 0
+	for rows.Next() {
+		var song SongResponse
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
+		if err != nil {
+			continue
+		}
+		song.DurationFmt = formatDuration(song.Duration)
+		rowsHTML += fmt.Sprintf(deletedSongRowTemplate, song.Title, song.Artist, song.Album, song.Genre, song.DurationFmt, song.ID)
+		count++
+	}
+
+	if count == 0 {
+		return emptyDeletedTemplate
+	}
+
+	return fmt.Sprintf(deletedTableTemplate, rowsHTML)
+}
+
+// ==================== HISTORY HANDLERS ====================
+
+// HistoryPage renders the playback history page
+func (h *Handler) HistoryPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	historyHTML := h.renderHistoryFragment()
+
+	w.Header().Set("Content-Type", "text/html")
+	result := historyPageTemplate
+	result = strings.Replace(result, "{{HISTORY}}", historyHTML, 1)
+	fmt.Fprint(w, result) //nolint:errcheck
+}
+
+// HistoryFragment returns playback history as HTML
+func (h *Handler) HistoryFragment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = w.Write([]byte(h.renderHistoryFragment()))
+}
+
+func (h *Handler) renderHistoryFragment() string {
+	rows, err := h.db.Query(`
+		SELECT h.id, h.played_at, h.duration_played, s.id, s.title, s.artist, s.album, s.genre, s.duration
+		FROM history h
+		JOIN songs s ON h.song_id = s.id
+		ORDER BY h.played_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		return emptyHistoryTemplate
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var rowsHTML string
+	count := 0
+	for rows.Next() {
+		var id int
+		var playedAt time.Time
+		var durationPlayed int
+		var songID int
+		var title, artist, album, genre string
+		var duration int
+
+		err := rows.Scan(&id, &playedAt, &durationPlayed, &songID, &title, &artist, &album, &genre, &duration)
+		if err != nil {
+			continue
+		}
+
+		playedAtFormatted := playedAt.Format("2006-01-02 15:04")
+		durationPlayedFmt := formatDuration(durationPlayed)
+		durationFmt := formatDuration(duration)
+
+		rowsHTML += fmt.Sprintf(historyRowTemplate, playedAtFormatted, title, artist, album, genre, durationFmt, durationPlayedFmt)
+		count++
+	}
+
+	if count == 0 {
+		return emptyHistoryTemplate
+	}
+
+	return fmt.Sprintf(historyTableTemplate, rowsHTML)
+}
+
+// ==================== HELPER METHODS ====================
+
+func formatDuration(seconds int) string {
+	m := seconds / 60
+	s := seconds % 60
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+func (h *Handler) renderSongsFragment() string {
+	rows, err := h.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE status = 'library' ORDER BY artist, title")
+	if err != nil {
+		return emptySongsTemplate
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var rowsHTML string
+	count := 0
+	for rows.Next() {
+		var song SongResponse
+		err := rows.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
+		if err != nil {
+			continue
+		}
+		song.DurationFmt = formatDuration(song.Duration)
+		rowsHTML += fmt.Sprintf(songRowTemplate, song.Title, song.Artist, song.Album, song.Genre, song.TrackNumber, song.DurationFmt, song.ID, song.ID)
 		count++
 	}
 
@@ -989,8 +1318,8 @@ func (h *Handler) renderNowPlayingFragment() string {
 	}
 
 	var song SongResponse
-	err = h.db.QueryRow("SELECT id, title, artist, album, cover_art, duration, location FROM songs WHERE id = ?", songID).
-		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.CoverArt, &song.Duration, &song.Location)
+	err = h.db.QueryRow("SELECT id, title, artist, album, genre, track_number, track_total, cover_art, duration, location, status FROM songs WHERE id = ?", songID).
+		Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.Genre, &song.TrackNumber, &song.TrackTotal, &song.CoverArt, &song.Duration, &song.Location, &song.Status)
 	if err != nil {
 		if h.playback != nil && h.playback.IsPaused() {
 			return fmt.Sprintf(nowPlayingEmptyTemplate, "paused", "Paused", "play", "▶ Play")
@@ -1003,13 +1332,25 @@ func (h *Handler) renderNowPlayingFragment() string {
 		coverHTML = fmt.Sprintf(`<img src="/admin/cover/%d" alt="Cover" style="width:100px;height:100px;border-radius:5px;margin-bottom:10px;">`, song.ID)
 	}
 
-	albumText := ""
+	detailsText := ""
 	if song.Album != "" {
-		albumText = fmt.Sprintf("Album: %s", song.Album)
+		detailsText += fmt.Sprintf("Album: %s | ", song.Album)
 	}
+	if song.Genre != "" {
+		detailsText += fmt.Sprintf("Genre: %s | ", song.Genre)
+	}
+	if song.TrackNumber > 0 {
+		detailsText += fmt.Sprintf("Track: %d", song.TrackNumber)
+		if song.TrackTotal > 0 {
+			detailsText += fmt.Sprintf("/%d", song.TrackTotal)
+		}
+	}
+	detailsText = strings.TrimRight(detailsText, " | ")
+
+	durationFmt := formatDuration(song.Duration)
 
 	if h.playback != nil && h.playback.IsPaused() {
-		return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, albumText, song.Duration, "paused", "Paused", "play", "▶ Play")
+		return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, detailsText, durationFmt, "paused", "Paused", "play", "▶ Play")
 	}
-	return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, albumText, song.Duration, "playing", "Playing", "stop", "⏸ Pause")
+	return fmt.Sprintf(nowPlayingTemplate, coverHTML, song.Title, song.Artist, detailsText, durationFmt, "playing", "Playing", "stop", "⏸ Pause")
 }
