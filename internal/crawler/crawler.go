@@ -48,6 +48,9 @@ func (c *Crawler) scanDirectory(dir string) error {
 		if err != nil {
 			return nil
 		}
+		if info.IsDir() && path != dir && strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
 		if info.IsDir() {
 			return nil
 		}

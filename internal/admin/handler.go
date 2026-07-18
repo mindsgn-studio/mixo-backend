@@ -853,6 +853,41 @@ func (h *Handler) RemoveFromQueueHTMX(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, messageSuccessTemplate, "Removed from queue!")
 }
 
+// RescanHTMX triggers a rescan of configured music directories
+func (h *Handler) RescanHTMX(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.crawler == nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "Crawler not available")
+		return
+	}
+
+	crawlDirs := strings.Split(h.cfg.CrawlDirs, ",")
+	if len(crawlDirs) == 0 || (len(crawlDirs) == 1 && crawlDirs[0] == "") {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, "No music directories configured (CRAWL_DIRS)")
+		return
+	}
+
+	if err := h.crawler.ScanDirectories(crawlDirs); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, messageErrorTemplate, fmt.Sprintf("Rescan failed: %v", err))
+		return
+	}
+
+	count, err := h.crawler.GetSongCount()
+	if err != nil {
+		count = 0
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = fmt.Fprintf(w, messageSuccessTemplate, fmt.Sprintf("Rescan complete! %d songs in library.", count))
+}
+
 // DeleteSongHTMX deletes a song from database only (keeps file on disk)
 func (h *Handler) DeleteSongHTMX(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {

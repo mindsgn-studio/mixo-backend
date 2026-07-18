@@ -114,7 +114,10 @@ const adminPageTemplate = `<!DOCTYPE html>
 
         <div class="section">
             <h2>Songs Library</h2>
-            <div id="songs-table" hx-get="/admin/songs" hx-trigger="load, refresh">
+            <div style="margin-bottom:15px;">
+                <button hx-post="/admin/rescan" hx-target="#message" hx-swap="innerHTML" hx-on::after-request="htmx.trigger('#songs-table', 'refresh')">Rescan Music Folders</button>
+            </div>
+            <div id="songs-table" hx-get="/admin/songs" hx-trigger="load, refresh, every 30s">
                 {{SONGS}}
             </div>
         </div>
