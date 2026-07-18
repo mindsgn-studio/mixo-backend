@@ -15,6 +15,7 @@ type QueueWorker struct {
 	db          *sql.DB
 	queue       *queue.Manager
 	crawler     *crawler.Crawler
+	crawlDirs   []string
 	targetHours int
 	interval    int
 	mu          sync.Mutex
@@ -22,11 +23,12 @@ type QueueWorker struct {
 	stopChan    chan struct{}
 }
 
-func New(db *sql.DB, q *queue.Manager, c *crawler.Crawler, targetHours, interval int) *QueueWorker {
+func New(db *sql.DB, q *queue.Manager, c *crawler.Crawler, crawlDirs []string, targetHours, interval int) *QueueWorker {
 	return &QueueWorker{
 		db:          db,
 		queue:       q,
 		crawler:     c,
+		crawlDirs:   crawlDirs,
 		targetHours: targetHours,
 		interval:    interval,
 		stopChan:    make(chan struct{}),
@@ -58,7 +60,7 @@ func (w *QueueWorker) Stop() {
 }
 
 func (w *QueueWorker) run() {
-	w.fillQueue()
+	w.rescanAndFill()
 
 	ticker := time.NewTicker(time.Duration(w.interval) * time.Minute)
 	defer ticker.Stop()
@@ -68,9 +70,18 @@ func (w *QueueWorker) run() {
 		case <-w.stopChan:
 			return
 		case <-ticker.C:
-			w.fillQueue()
+			w.rescanAndFill()
 		}
 	}
+}
+
+func (w *QueueWorker) rescanAndFill() {
+	if len(w.crawlDirs) > 0 {
+		if err := w.crawler.ScanDirectories(w.crawlDirs); err != nil {
+			log.Printf("Error during periodic rescan: %v", err)
+		}
+	}
+	w.fillQueue()
 }
 
 func (w *QueueWorker) fillQueue() {

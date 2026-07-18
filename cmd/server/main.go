@@ -20,7 +20,7 @@ import (
 	"github.com/mindsgn-studio/mixo-backend/internal/worker"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	log.Printf("Starting Radio Server v%s", version)
@@ -47,18 +47,10 @@ func main() {
 
 	// Initialize crawler
 	crawlerWorker := crawler.New(db.DB, cfg.SongDir)
-
-	// Run initial crawl
 	crawlDirs := strings.Split(cfg.CrawlDirs, ",")
-	if len(crawlDirs) > 0 && crawlDirs[0] != "" {
-		log.Println("Running initial music crawl...")
-		if err := crawlerWorker.ScanDirectories(crawlDirs); err != nil {
-			log.Printf("Warning: crawl error: %v", err)
-		}
-	}
 
-	// Initialize queue worker
-	queueWorker := worker.New(db.DB, queueManager, crawlerWorker, cfg.QueueHours, cfg.CrawlInterval)
+	// Initialize queue worker (handles initial crawl + periodic rescan)
+	queueWorker := worker.New(db.DB, queueManager, crawlerWorker, crawlDirs, cfg.QueueHours, cfg.CrawlInterval)
 	queueWorker.Start()
 	defer queueWorker.Stop()
 

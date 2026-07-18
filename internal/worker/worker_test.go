@@ -66,7 +66,7 @@ func TestNew(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 	if w == nil {
 		t.Fatal("expected non-nil worker")
 	}
@@ -83,7 +83,7 @@ func TestGetQueueDuration_Empty(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	duration, err := w.GetQueueDurationSeconds()
 	if err != nil {
@@ -99,7 +99,7 @@ func TestGetQueueDuration_WithData(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	// Add songs
 	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist1', 180, '/tmp/song1.mp3')")
@@ -123,7 +123,7 @@ func TestGetQueueDurationFormatted(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist1', 3661, '/tmp/song1.mp3')")
 	_ = qm.Add(1)
@@ -142,7 +142,7 @@ func TestFillQueue_EmptyLibrary(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 	w.fillQueue()
 
 	length, _ := qm.Length()
@@ -156,7 +156,7 @@ func TestFillQueue_AlreadyFull(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 1, 60) // 1 hour target
+	w := New(db, qm, c, []string{}, 1, 60) // 1 hour target
 
 	// Add a song with enough duration
 	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist1', 3601, '/tmp/song1.mp3')")
@@ -176,7 +176,7 @@ func TestFillQueue_NeedsMore(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 1, 60) // 1 hour target
+	w := New(db, qm, c, []string{}, 1, 60) // 1 hour target
 
 	// Add a song with less duration than target
 	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location) VALUES ('Song1', 'Artist1', 180, '/tmp/song1.mp3')")
@@ -196,7 +196,7 @@ func TestStartStop(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	w.Start()
 	time.Sleep(10 * time.Millisecond)
@@ -226,7 +226,7 @@ func TestStart_Idempotent(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	w.Start()
 	w.Start() // Second start should be a no-op
@@ -247,7 +247,7 @@ func TestStop_Idempotent(t *testing.T) {
 	qm := queue.New(db)
 	c := crawler.New(db, t.TempDir())
 
-	w := New(db, qm, c, 24, 60)
+	w := New(db, qm, c, []string{}, 24, 60)
 
 	w.Stop() // Stop without start should be a no-op
 
