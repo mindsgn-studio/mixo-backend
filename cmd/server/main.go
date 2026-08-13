@@ -20,7 +20,7 @@ import (
 	"github.com/mindsgn-studio/mixo-backend/internal/worker"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	log.Printf("Starting Radio Server v%s", version)
@@ -68,6 +68,18 @@ func main() {
 	adminHandler := admin.New(db.DB, queueManager, cfg)
 	adminHandler.SetPlayback(playbackEngine)
 	adminHandler.SetCrawler(crawlerWorker)
+	adminHandler.SetBroadcaster(broadcaster)
+
+	// Start listener snapshot recorder
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			var currentSongID int
+			_ = db.DB.QueryRow("SELECT value FROM state WHERE key = 'current_song'").Scan(&currentSongID)
+			adminHandler.SaveListenerSnapshot(db.DB, broadcaster.ClientCount(), currentSongID)
+		}
+	}()
 
 	// Setup HTTP server
 	mux := http.NewServeMux()

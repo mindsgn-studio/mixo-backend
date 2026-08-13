@@ -108,12 +108,10 @@ func (c *Crawler) processFile(filePath string) error {
 		album = metadata.Album()
 		genre = metadata.Genre()
 
-		// Extract track number and total
 		track, total := metadata.Track()
 		trackNumber = track
 		trackTotal = total
 
-		// Extract cover art
 		picture := metadata.Picture()
 		if picture != nil {
 			coverPath := filepath.Join(c.songDir, ".covers", fmt.Sprintf("%d.jpg", time.Now().UnixNano()))
@@ -239,9 +237,11 @@ func (c *Crawler) GetTotalDuration(dirs []string) (int, error) {
 }
 
 func (c *Crawler) GetRandomSongs(count int) ([]int, error) {
-	rows, err := c.db.Query("SELECT id FROM songs WHERE status = 'library' ORDER BY RANDOM() LIMIT ?", count)
+	var ids []int
+
+	rows, err := c.db.Query("SELECT id FROM songs WHERE status = 'library' AND is_favourite = 1 ORDER BY RANDOM() LIMIT ?", count)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query random songs: %w", err)
+		return nil, fmt.Errorf("failed to query random favourited songs: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -249,13 +249,33 @@ func (c *Crawler) GetRandomSongs(count int) ([]int, error) {
 		}
 	}()
 
-	var ids []int
 	for rows.Next() {
 		var id int
 		if err := rows.Scan(&id); err != nil {
 			continue
 		}
 		ids = append(ids, id)
+	}
+
+	if len(ids) < count {
+		remaining := count - len(ids)
+		rows2, err := c.db.Query("SELECT id FROM songs WHERE status = 'library' AND id NOT IN (SELECT id FROM songs WHERE status = 'library' AND is_favourite = 1) ORDER BY RANDOM() LIMIT ?", remaining)
+		if err != nil {
+			return ids, nil
+		}
+		defer func() {
+			if err := rows2.Close(); err != nil {
+				log.Printf("Warning: failed to close rows: %v", err)
+			}
+		}()
+
+		for rows2.Next() {
+			var id int
+			if err := rows2.Scan(&id); err != nil {
+				continue
+			}
+			ids = append(ids, id)
+		}
 	}
 
 	return ids, nil
@@ -333,6 +353,123 @@ func formatDuration(seconds int) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+func (c *Crawler) GetAllAlbums() ([]string, error) {
+	rows, err := c.db.Query("SELECT DISTINCT album FROM songs WHERE status = 'library' AND album != '' ORDER BY album")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query albums: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Warning: failed to close rows: %v", err)
+		}
+	}()
+
+	var albums []string
+	for rows.Next() {
+		var album string
+		if err := rows.Scan(&album); err != nil {
+			continue
+		}
+		albums = append(albums, album)
+	}
+
+	return albums, nil
+}
+
+func (c *Crawler) GetAlbumSongs(album string) ([]SongInfo, error) {
+	rows, err := c.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, duration, location, status FROM songs WHERE status = 'library' AND album = ? ORDER BY track_number, title", album)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query album songs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Warning: failed to close rows: %v", err)
+		}
+	}()
+
+	var songs []SongInfo
+	for rows.Next() {
+		var s SongInfo
+		if err := rows.Scan(&s.ID, &s.Title, &s.Artist, &s.Album, &s.Genre, &s.TrackNumber, &s.TrackTotal, &s.Duration, &s.Location, &s.Status); err != nil {
+			continue
+		}
+		s.DurationFormatted = formatDuration(s.Duration)
+		songs = append(songs, s)
+	}
+
+	return songs, nil
+}
+
+func (c *Crawler) GetAllArtists() ([]string, error) {
+	rows, err := c.db.Query("SELECT DISTINCT artist FROM songs WHERE status = 'library' ORDER BY artist")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query artists: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Warning: failed to close rows: %v", err)
+		}
+	}()
+
+	var artists []string
+	for rows.Next() {
+		var artist string
+		if err := rows.Scan(&artist); err != nil {
+			continue
+		}
+		artists = append(artists, artist)
+	}
+
+	return artists, nil
+}
+
+func (c *Crawler) GetArtistSongs(artist string) ([]SongInfo, error) {
+	rows, err := c.db.Query("SELECT id, title, artist, album, genre, track_number, track_total, duration, location, status FROM songs WHERE status = 'library' AND artist = ? ORDER BY album, track_number, title", artist)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query artist songs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Warning: failed to close rows: %v", err)
+		}
+	}()
+
+	var songs []SongInfo
+	for rows.Next() {
+		var s SongInfo
+		if err := rows.Scan(&s.ID, &s.Title, &s.Artist, &s.Album, &s.Genre, &s.TrackNumber, &s.TrackTotal, &s.Duration, &s.Location, &s.Status); err != nil {
+			continue
+		}
+		s.DurationFormatted = formatDuration(s.Duration)
+		songs = append(songs, s)
+	}
+
+	return songs, nil
+}
+
+func (c *Crawler) GetArtistAlbums(artist string) ([]string, error) {
+	rows, err := c.db.Query("SELECT DISTINCT album FROM songs WHERE status = 'library' AND artist = ? AND album != '' ORDER BY album", artist)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query artist albums: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Warning: failed to close rows: %v", err)
+		}
+	}()
+
+	var albums []string
+	for rows.Next() {
+		var album string
+		if err := rows.Scan(&album); err != nil {
+			continue
+		}
+		albums = append(albums, album)
+	}
+
+	return albums, nil
 }
 
 func (c *Crawler) WriteToFile(w io.Writer, data []byte) error {

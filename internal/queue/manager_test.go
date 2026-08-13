@@ -241,3 +241,175 @@ func TestManager_Length(t *testing.T) {
 		t.Errorf("Expected length 1, got %d", length)
 	}
 }
+
+func TestManager_Reorder_Down(t *testing.T) {
+	db := setupTestDB(t)
+
+	songID1 := addTestSong(t, db, "Song 1", "Artist 1", "/path1.mp3", 180)
+	songID2 := addTestSong(t, db, "Song 2", "Artist 2", "/path2.mp3", 200)
+	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 150)
+
+	qm := New(db)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
+	if err := qm.Add(songID3); err != nil {
+		t.Fatalf("Failed to add song 3: %v", err)
+	}
+
+	items, _ := qm.GetAll()
+	if items[0].Song.ID != songID1 || items[1].Song.ID != songID2 || items[2].Song.ID != songID3 {
+		t.Fatal("Initial order is wrong")
+	}
+
+	// Move first item to position 3
+	if err := qm.Reorder(items[0].ID, 3); err != nil {
+		t.Fatalf("Failed to reorder: %v", err)
+	}
+
+	items, _ = qm.GetAll()
+	if len(items) != 3 {
+		t.Fatalf("Expected 3 items, got %d", len(items))
+	}
+	if items[0].Song.ID != songID2 {
+		t.Errorf("Expected song 2 at position 1, got %d", items[0].Song.ID)
+	}
+	if items[1].Song.ID != songID3 {
+		t.Errorf("Expected song 3 at position 2, got %d", items[1].Song.ID)
+	}
+	if items[2].Song.ID != songID1 {
+		t.Errorf("Expected song 1 at position 3, got %d", items[2].Song.ID)
+	}
+}
+
+func TestManager_Reorder_Up(t *testing.T) {
+	db := setupTestDB(t)
+
+	songID1 := addTestSong(t, db, "Song 1", "Artist 1", "/path1.mp3", 180)
+	songID2 := addTestSong(t, db, "Song 2", "Artist 2", "/path2.mp3", 200)
+	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 150)
+
+	qm := New(db)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
+	if err := qm.Add(songID3); err != nil {
+		t.Fatalf("Failed to add song 3: %v", err)
+	}
+
+	items, _ := qm.GetAll()
+
+	// Move last item to position 1
+	if err := qm.Reorder(items[2].ID, 1); err != nil {
+		t.Fatalf("Failed to reorder: %v", err)
+	}
+
+	items, _ = qm.GetAll()
+	if items[0].Song.ID != songID3 {
+		t.Errorf("Expected song 3 at position 1, got %d", items[0].Song.ID)
+	}
+	if items[1].Song.ID != songID1 {
+		t.Errorf("Expected song 1 at position 2, got %d", items[1].Song.ID)
+	}
+	if items[2].Song.ID != songID2 {
+		t.Errorf("Expected song 2 at position 3, got %d", items[2].Song.ID)
+	}
+}
+
+func TestManager_Reorder_SamePosition(t *testing.T) {
+	db := setupTestDB(t)
+
+	songID1 := addTestSong(t, db, "Song 1", "Artist 1", "/path1.mp3", 180)
+
+	qm := New(db)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+
+	items, _ := qm.GetAll()
+
+	// Reorder to same position should be a no-op
+	if err := qm.Reorder(items[0].ID, 1); err != nil {
+		t.Fatalf("Failed to reorder: %v", err)
+	}
+
+	items, _ = qm.GetAll()
+	if len(items) != 1 || items[0].Position != 1 {
+		t.Errorf("Expected position 1, got %d", items[0].Position)
+	}
+}
+
+func TestManager_Reorder_InvalidID(t *testing.T) {
+	db := setupTestDB(t)
+	qm := New(db)
+
+	err := qm.Reorder(9999, 1)
+	if err == nil {
+		t.Error("Expected error for invalid queue ID, got nil")
+	}
+}
+
+func TestManager_GetDurationBeforePosition(t *testing.T) {
+	db := setupTestDB(t)
+
+	songID1 := addTestSong(t, db, "Song 1", "Artist 1", "/path1.mp3", 180)
+	songID2 := addTestSong(t, db, "Song 2", "Artist 2", "/path2.mp3", 240)
+	songID3 := addTestSong(t, db, "Song 3", "Artist 3", "/path3.mp3", 120)
+
+	qm := New(db)
+	if err := qm.Add(songID1); err != nil {
+		t.Fatalf("Failed to add song 1: %v", err)
+	}
+	if err := qm.Add(songID2); err != nil {
+		t.Fatalf("Failed to add song 2: %v", err)
+	}
+	if err := qm.Add(songID3); err != nil {
+		t.Fatalf("Failed to add song 3: %v", err)
+	}
+
+	// Duration before position 1 should be 0 (nothing before first position)
+	dur, err := qm.GetDurationBeforePosition(1)
+	if err != nil {
+		t.Fatalf("Failed to get duration: %v", err)
+	}
+	if dur != 0 {
+		t.Errorf("Expected 0 duration before position 1, got %d", dur)
+	}
+
+	// Duration before position 2 should be 180 (just song 1)
+	dur, err = qm.GetDurationBeforePosition(2)
+	if err != nil {
+		t.Fatalf("Failed to get duration: %v", err)
+	}
+	if dur != 180 {
+		t.Errorf("Expected 180 duration before position 2, got %d", dur)
+	}
+
+	// Duration before position 3 should be 420 (song 1 + song 2)
+	dur, err = qm.GetDurationBeforePosition(3)
+	if err != nil {
+		t.Fatalf("Failed to get duration: %v", err)
+	}
+	if dur != 420 {
+		t.Errorf("Expected 420 duration before position 3, got %d", dur)
+	}
+}
+
+func TestManager_GetDurationBeforePosition_Empty(t *testing.T) {
+	db := setupTestDB(t)
+	qm := New(db)
+
+	dur, err := qm.GetDurationBeforePosition(1)
+	if err != nil {
+		t.Fatalf("Failed to get duration: %v", err)
+	}
+	if dur != 0 {
+		t.Errorf("Expected 0, got %d", dur)
+	}
+}

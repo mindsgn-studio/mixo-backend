@@ -31,6 +31,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		source_location TEXT DEFAULT '',
 		normalized INTEGER NOT NULL DEFAULT 0,
 		status TEXT DEFAULT 'deleted',
+		is_favourite INTEGER NOT NULL DEFAULT 0,
 		added_to_library_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -368,5 +369,161 @@ func TestRemoveMissingFiles_KeepsExisting(t *testing.T) {
 	count, _ := c.GetSongCount()
 	if count != 1 {
 		t.Errorf("expected 1 song to remain, got %d", count)
+	}
+}
+
+func TestGetAllAlbums(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S1', 'A1', 'Album A', 180, '/tmp/s1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S2', 'A2', 'Album B', 200, '/tmp/s2.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S3', 'A3', 'Album A', 150, '/tmp/s3.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('S4', 'A4', 160, '/tmp/s4.mp3', 'library')")
+
+	albums, err := c.GetAllAlbums()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(albums) != 2 {
+		t.Fatalf("expected 2 albums, got %d", len(albums))
+	}
+	if albums[0] != "Album A" {
+		t.Errorf("expected 'Album A', got '%s'", albums[0])
+	}
+	if albums[1] != "Album B" {
+		t.Errorf("expected 'Album B', got '%s'", albums[1])
+	}
+}
+
+func TestGetAlbumSongs(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S1', 'A1', 'Album1', 'Rock', 1, 180, '/tmp/s1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S2', 'A1', 'Album1', 'Rock', 2, 200, '/tmp/s2.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S3', 'A2', 'Album2', 'Pop', 1, 150, '/tmp/s3.mp3', 'library')")
+
+	songs, err := c.GetAlbumSongs("Album1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(songs) != 2 {
+		t.Fatalf("expected 2 songs, got %d", len(songs))
+	}
+	if songs[0].Title != "S1" {
+		t.Errorf("expected 'S1', got '%s'", songs[0].Title)
+	}
+	if songs[0].TrackNumber != 1 {
+		t.Errorf("expected track 1, got %d", songs[0].TrackNumber)
+	}
+	if songs[1].TrackNumber != 2 {
+		t.Errorf("expected track 2, got %d", songs[1].TrackNumber)
+	}
+}
+
+func TestGetAlbumSongs_Empty(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	songs, err := c.GetAlbumSongs("Nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(songs) != 0 {
+		t.Errorf("expected 0 songs, got %d", len(songs))
+	}
+}
+
+func TestGetAllArtists(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('S1', 'Zebra', 180, '/tmp/s1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('S2', 'Apple', 200, '/tmp/s2.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status) VALUES ('S3', 'Zebra', 150, '/tmp/s3.mp3', 'library')")
+
+	artists, err := c.GetAllArtists()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(artists) != 2 {
+		t.Fatalf("expected 2 artists, got %d", len(artists))
+	}
+	if artists[0] != "Apple" {
+		t.Errorf("expected 'Apple', got '%s'", artists[0])
+	}
+	if artists[1] != "Zebra" {
+		t.Errorf("expected 'Zebra', got '%s'", artists[1])
+	}
+}
+
+func TestGetArtistSongs(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S1', 'Artist1', 'Album1', 'Rock', 1, 180, '/tmp/s1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S2', 'Artist1', 'Album2', 'Pop', 1, 200, '/tmp/s2.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, genre, track_number, duration, location, status) VALUES ('S3', 'Artist2', 'Album3', 'Jazz', 1, 150, '/tmp/s3.mp3', 'library')")
+
+	songs, err := c.GetArtistSongs("Artist1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(songs) != 2 {
+		t.Fatalf("expected 2 songs, got %d", len(songs))
+	}
+	if songs[0].Album != "Album1" {
+		t.Errorf("expected 'Album1', got '%s'", songs[0].Album)
+	}
+	if songs[1].Album != "Album2" {
+		t.Errorf("expected 'Album2', got '%s'", songs[1].Album)
+	}
+}
+
+func TestGetArtistAlbums(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S1', 'Artist1', 'Album A', 180, '/tmp/s1.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S2', 'Artist1', 'Album B', 200, '/tmp/s2.mp3', 'library')")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, album, duration, location, status) VALUES ('S3', 'Artist2', 'Album C', 150, '/tmp/s3.mp3', 'library')")
+
+	albums, err := c.GetArtistAlbums("Artist1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(albums) != 2 {
+		t.Fatalf("expected 2 albums, got %d", len(albums))
+	}
+	if albums[0] != "Album A" {
+		t.Errorf("expected 'Album A', got '%s'", albums[0])
+	}
+	if albums[1] != "Album B" {
+		t.Errorf("expected 'Album B', got '%s'", albums[1])
+	}
+}
+
+func TestGetRandomSongs_PrefersFavourites(t *testing.T) {
+	db := setupTestDB(t)
+	c := New(db, t.TempDir())
+
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status, is_favourite) VALUES ('Fav1', 'A', 180, '/tmp/fav1.mp3', 'library', 1)")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status, is_favourite) VALUES ('Fav2', 'A', 180, '/tmp/fav2.mp3', 'library', 1)")
+	_, _ = db.Exec("INSERT INTO songs (title, artist, duration, location, status, is_favourite) VALUES ('Normal1', 'A', 180, '/tmp/n1.mp3', 'library', 0)")
+
+	songs, err := c.GetRandomSongs(2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(songs) != 2 {
+		t.Fatalf("expected 2 songs, got %d", len(songs))
+	}
+
+	// Both favourites should be returned
+	for _, id := range songs {
+		if id != 1 && id != 2 {
+			t.Errorf("expected favourite song (id 1 or 2), got %d", id)
+		}
 	}
 }
