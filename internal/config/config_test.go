@@ -65,3 +65,79 @@ func TestGetEnvAsInt(t *testing.T) {
 		t.Errorf("Expected 10 (default), got %d", result)
 	}
 }
+
+func TestConfigAuthDefaults(t *testing.T) {
+	unsetEnv(t, "ADMIN_USERNAME", "ADMIN_PASSWORD")
+	cfg := &Config{
+		AdminUsername: "admin",
+		AdminPassword: "",
+	}
+	if cfg.AdminUsername != "admin" {
+		t.Errorf("Expected default admin username 'admin', got %q", cfg.AdminUsername)
+	}
+	if cfg.AdminPassword != "" {
+		t.Errorf("Expected empty admin password by default, got %q", cfg.AdminPassword)
+	}
+}
+
+func TestLoadAdminAuthFromEnv(t *testing.T) {
+	unsetEnv(t, "ADMIN_USERNAME", "ADMIN_PASSWORD")
+
+	if err := os.Setenv("ADMIN_USERNAME", "radio"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("ADMIN_PASSWORD", "hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	defer unsetEnv(t, "ADMIN_USERNAME", "ADMIN_PASSWORD")
+
+	cfg := &Config{
+		AdminUsername: getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword: getEnv("ADMIN_PASSWORD", ""),
+	}
+	if cfg.AdminUsername != "radio" {
+		t.Errorf("Expected admin username 'radio', got %q", cfg.AdminUsername)
+	}
+	if cfg.AdminPassword != "hunter2" {
+		t.Errorf("Expected admin password 'hunter2', got %q", cfg.AdminPassword)
+	}
+}
+
+func TestHLSDefaults(t *testing.T) {
+	cfg := &Config{
+		HLSDir:          "/var/www/html/hls",
+		HLSStreamID:     "radio",
+		HLSSegmentTime:  2,
+		HLSPlaylistSize: 6,
+	}
+	if cfg.HLSDir != "/var/www/html/hls" {
+		t.Errorf("Expected default HLS_DIR /var/www/html/hls, got %q", cfg.HLSDir)
+	}
+	if cfg.HLSStreamID != "radio" {
+		t.Errorf("Expected default HLS_STREAM_ID 'radio', got %q", cfg.HLSStreamID)
+	}
+	if cfg.HLSSegmentTime != 2 || cfg.HLSPlaylistSize != 6 {
+		t.Errorf("unexpected hls tuning: segment=%d playlist=%d", cfg.HLSSegmentTime, cfg.HLSPlaylistSize)
+	}
+}
+
+func TestLoadHLSDirFromEnv(t *testing.T) {
+	unsetEnv(t, "HLS_DIR")
+	if err := os.Setenv("HLS_DIR", "/srv/hls"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Unsetenv("HLS_DIR") }()
+
+	if got := getEnv("HLS_DIR", "/var/www/html/hls"); got != "/srv/hls" {
+		t.Errorf("Expected HLS_DIR /srv/hls, got %q", got)
+	}
+}
+
+func unsetEnv(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, k := range keys {
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatalf("Failed to unset %s: %v", k, err)
+		}
+	}
+}

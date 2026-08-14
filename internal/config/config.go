@@ -9,13 +9,20 @@ import (
 )
 
 type Config struct {
-	Port          string
-	SongDir       string
-	DBPath        string
-	StreamTimeout int
-	CrawlDirs     string
-	QueueHours    int
-	CrawlInterval int
+	Port            string
+	SongDir         string
+	DBPath          string
+	StreamTimeout   int
+	CrawlDirs       string
+	QueueHours      int
+	CrawlInterval   int
+	FFmpegBin       string
+	AdminUsername   string
+	AdminPassword   string
+	HLSDir          string
+	HLSStreamID     string
+	HLSSegmentTime  int
+	HLSPlaylistSize int
 }
 
 func Load() (*Config, error) {
@@ -32,13 +39,20 @@ func Load() (*Config, error) {
 	crawlInterval := getEnvAsInt("CRAWL_INTERVAL", "60")
 
 	return &Config{
-		Port:          port,
-		SongDir:       songDir,
-		DBPath:        dbPath,
-		StreamTimeout: streamTimeout,
-		CrawlDirs:     crawlDirs,
-		QueueHours:    queueHours,
-		CrawlInterval: crawlInterval,
+		Port:            port,
+		SongDir:         songDir,
+		DBPath:          dbPath,
+		StreamTimeout:   streamTimeout,
+		CrawlDirs:       crawlDirs,
+		QueueHours:      queueHours,
+		CrawlInterval:   crawlInterval,
+		FFmpegBin:       getEnv("FFMPEG_BIN", "ffmpeg"),
+		AdminUsername:   getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:   getEnv("ADMIN_PASSWORD", ""),
+		HLSDir:          getEnv("HLS_DIR", "/var/www/html/hls"),
+		HLSStreamID:     getEnv("HLS_STREAM_ID", "radio"),
+		HLSSegmentTime:  getEnvAsInt("HLS_SEGMENT_TIME", "2"),
+		HLSPlaylistSize: getEnvAsInt("HLS_PLAYLIST_SIZE", "6"),
 	}, nil
 }
 

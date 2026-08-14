@@ -21,6 +21,7 @@ type Client struct {
 
 type Broadcaster struct {
 	clients       map[string]*Client
+	sinks         map[chan []byte]struct{}
 	mu            sync.RWMutex
 	chunkChan     <-chan []byte
 	streamTimeout time.Duration
@@ -30,9 +31,25 @@ type Broadcaster struct {
 func New(chunkChan <-chan []byte, timeout time.Duration) *Broadcaster {
 	return &Broadcaster{
 		clients:       make(map[string]*Client),
+		sinks:         make(map[chan []byte]struct{}),
 		chunkChan:     chunkChan,
 		streamTimeout: timeout,
 		startupBuffer: make([][]byte, 0, startupBufferChunks),
+	}
+}
+
+// AddSink registers an additional consumer of every broadcast chunk (for
+// example the HLS encoder). Sends are non-blocking: a slow sink drops chunks
+// rather than stalling the live broadcast. The returned function removes the
+// sink again.
+func (b *Broadcaster) AddSink(ch chan []byte) func() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sinks[ch] = struct{}{}
+	return func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		delete(b.sinks, ch)
 	}
 }
 
@@ -87,6 +104,14 @@ func (b *Broadcaster) broadcastLoop() {
 			case client.Chunks <- chunk:
 			default:
 				slowClients = append(slowClients, client.ID)
+			}
+		}
+
+		for sink := range b.sinks {
+			select {
+			case sink <- chunk:
+			default:
+				log.Printf("Broadcast sink fell behind - dropping chunk")
 			}
 		}
 		b.mu.Unlock()

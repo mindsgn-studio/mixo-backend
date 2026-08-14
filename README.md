@@ -16,6 +16,10 @@ A real-time internet radio streaming server built with Go that broadcasts a sing
 - **Admin API** - RESTful endpoints for managing songs and queue
 - **SQLite persistence** - Stores songs, queue, history, and state
 - **FFmpeg integration** - Ensures consistent audio format
+- **HLS output** - The radio stream is also encoded to HLS so it can be watched
+  alongside live video (see [HLS output](#hls-output))
+- **Password-protected admin** - `/admin` and its API can be locked with HTTP
+  Basic Auth via `ADMIN_PASSWORD` (open by default)
 - **Slow client handling** - Automatically drops clients that can't keep up
 
 ## Requirements
@@ -82,6 +86,18 @@ STREAM_TIMEOUT=30
 CRAWL_DIRS=../songs
 QUEUE_HOURS=24
 CRAWL_INTERVAL=60
+
+# Password-protect the admin interface (HTTP Basic Auth on /admin).
+# Leave ADMIN_PASSWORD empty to keep it open.
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=
+
+# HLS output for the radio stream (see "HLS output" below).
+FFMPEG_BIN=ffmpeg
+HLS_DIR=/var/www/html/hls
+HLS_STREAM_ID=radio
+HLS_SEGMENT_TIME=2
+HLS_PLAYLIST_SIZE=6
 ```
 
 | Variable | Description | Default |
@@ -93,6 +109,39 @@ CRAWL_INTERVAL=60
 | `CRAWL_DIRS` | Comma-separated directories to scan for MP3s | `../songs` |
 | `QUEUE_HOURS` | Target queue duration in hours | `24` |
 | `CRAWL_INTERVAL` | How often to refill queue (minutes) | `60` |
+| `ADMIN_USERNAME` | Admin username (Basic Auth) | `admin` |
+| `ADMIN_PASSWORD` | Admin password; empty = admin open | `""` |
+| `FFMPEG_BIN` | FFmpeg binary used for HLS encoding | `ffmpeg` |
+| `HLS_DIR` | HLS output directory | `/var/www/html/hls` |
+| `HLS_STREAM_ID` | Subdirectory for the radio playlist | `radio` |
+| `HLS_SEGMENT_TIME` | HLS segment length in seconds | `2` |
+| `HLS_PLAYLIST_SIZE` | Segments kept in the playlist | `6` |
+
+## HLS output
+
+The radio stream is continuously encoded to HLS by FFmpeg. The playlist is
+written to:
+
+```
+$HLS_DIR/$HLS_STREAM_ID/index.m3u8   # default: /var/www/html/hls/radio/index.m3u8
+```
+
+On Ubuntu the default `HLS_DIR` (`/var/www/html/hls`) is the web root that
+nginx serves directly at `/hls/`. This directory is **shared** with the video
+streaming server (**a11-video-stream**), which writes its own playlists into
+`/hls/<stream-id>/` there. Serving both from the same root means the radio page
+can show either the live video stream (from a11-video-stream) or the radio
+music (from mixo-backend) at `/hls/radio/index.m3u8`.
+
+Ensure the directory exists and is writable by the user running the server:
+
+```bash
+sudo mkdir -p /var/www/html/hls
+sudo chown -R www-data:www-data /var/www/html/hls   # or the app user
+```
+
+The radio HLS playlist is also served by this server at `/hls/radio/index.m3u8`
+for direct access.
 
 ## Usage
 
@@ -117,7 +166,8 @@ The server will:
 | Endpoint | Description |
 |----------|-------------|
 | `http://localhost:8080/stream` | Audio stream (use with any media player) |
-| `http://localhost:8080/admin` | HTMX admin interface |
+| `http://localhost:8080/hls/` | Radio HLS playlist + segments (`/hls/radio/index.m3u8`) |
+| `http://localhost:8080/admin` | HTMX admin interface (Basic Auth when `ADMIN_PASSWORD` is set) |
 | `http://localhost:8080/api/*` | REST API endpoints |
 | `http://localhost:8080/health` | Health check |
 
@@ -170,6 +220,7 @@ mixo-backend/
 │   └── main.go                    # Application entry point
 ├── internal/
 │   ├── admin/
+│   │   ├── auth.go                # HTTP Basic Auth for /admin
 │   │   ├── handler.go             # Admin API handlers
 │   │   ├── routes.go              # Route registration
 │   │   └── templates.go           # HTML templates for HTMX
@@ -183,6 +234,9 @@ mixo-backend/
 │   │   ├── migrations.go          # Database schema
 │   │   ├── migrations_test.go     # Migration tests
 │   │   └── sqlite.go              # SQLite connection
+│   ├── hls/
+│   │   ├── hls.go                 # HLS encoder (radio stream → FFmpeg → HLS)
+│   │   └── hls_test.go            # HLS encoder tests
 │   ├── playback/
 │   │   ├── engine.go              # Playback engine
 │   │   └── ffmpeg.go              # FFmpeg integration
@@ -190,7 +244,7 @@ mixo-backend/
 │   │   ├── manager.go             # Queue management
 │   │   └── manager_test.go        # Queue tests
 │   ├── stream/
-│   │   ├── broadcaster.go         # Fan-out broadcaster
+│   │   ├── broadcaster.go         # Fan-out broadcaster (+ HLS sink)
 │   │   └── handler.go             # HTTP stream handler
 │   └── worker/
 │       ├── worker.go              # Queue maintenance worker

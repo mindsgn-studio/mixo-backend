@@ -14,6 +14,7 @@ import (
 	"github.com/mindsgn-studio/mixo-backend/internal/config"
 	"github.com/mindsgn-studio/mixo-backend/internal/crawler"
 	"github.com/mindsgn-studio/mixo-backend/internal/database"
+	"github.com/mindsgn-studio/mixo-backend/internal/hls"
 	"github.com/mindsgn-studio/mixo-backend/internal/playback"
 	"github.com/mindsgn-studio/mixo-backend/internal/queue"
 	"github.com/mindsgn-studio/mixo-backend/internal/stream"
@@ -64,6 +65,36 @@ func main() {
 	broadcaster := stream.New(playbackEngine.GetChunkChan(), streamTimeout)
 	broadcaster.Start()
 
+	// Initialize HLS encoder for the radio stream. It consumes the same audio
+	// chunks as the HTTP broadcaster and writes HLS files to the shared web
+	// root (default /var/www/html/hls), next to the video streaming server's
+	// output.
+	enc := hls.New(hls.Config{
+		Bin:          cfg.FFmpegBin,
+		HLSDir:       cfg.HLSDir,
+		StreamID:     cfg.HLSStreamID,
+		SegmentTime:  cfg.HLSSegmentTime,
+		PlaylistSize: cfg.HLSPlaylistSize,
+		Stderr:       os.Stderr,
+	})
+	if err := enc.Start(); err != nil {
+		log.Printf("Warning: HLS encoder disabled: %v", err)
+	} else {
+		sink := make(chan []byte, 128)
+		removeSink := broadcaster.AddSink(sink)
+		defer removeSink()
+		go func() {
+			for chunk := range sink {
+				if _, err := enc.Write(chunk); err != nil {
+					log.Printf("Warning: HLS encoder write failed: %v", err)
+					return
+				}
+			}
+		}()
+		log.Printf("HLS encoder enabled: %s/%s/index.m3u8", cfg.HLSDir, cfg.HLSStreamID)
+	}
+	defer enc.Stop()
+
 	// Initialize admin handler
 	adminHandler := admin.New(db.DB, queueManager, cfg)
 	adminHandler.SetPlayback(playbackEngine)
@@ -84,7 +115,12 @@ func main() {
 	// Setup HTTP server
 	mux := http.NewServeMux()
 
-	// CORS middleware
+	// Protect the admin interface with HTTP Basic Auth (enabled when
+	// ADMIN_PASSWORD is set in .env).
+	protected := admin.BasicAuth(cfg)(mux)
+
+	// CORS middleware (applied before admin auth so preflight OPTIONS requests
+	// never need credentials).
 	corsMux := http.NewServeMux()
 	corsMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -96,12 +132,15 @@ func main() {
 			return
 		}
 
-		mux.ServeHTTP(w, r)
+		protected.ServeHTTP(w, r)
 	})
 
 	// Stream endpoint
 	streamHandler := stream.NewHandler(broadcaster)
 	mux.Handle("/stream", streamHandler)
+
+	// HLS files for the radio stream, served from the shared web root.
+	mux.Handle("/hls/", hlsCacheControl(http.StripPrefix("/hls/", http.FileServer(http.Dir(cfg.HLSDir)))))
 
 	// Listen page (public-facing player)
 	listenHandler := stream.NewListenHandler(db.DB)
@@ -152,4 +191,18 @@ func main() {
 	}
 
 	log.Println("Server stopped")
+}
+
+// hlsCacheControl sends cache-friendly headers for HLS media: playlists are
+// never cached, segments are cached briefly, and every response allows CORS.
+func hlsCacheControl(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".m3u8") {
+			w.Header().Set("Cache-Control", "no-cache")
+		} else {
+			w.Header().Set("Cache-Control", "max-age=60")
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		next.ServeHTTP(w, r)
+	})
 }

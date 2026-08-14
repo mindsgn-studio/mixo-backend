@@ -74,6 +74,51 @@ func TestBroadcaster_RecordStartupChunkKeepsRecentCopies(t *testing.T) {
 	}
 }
 
+func TestBroadcaster_AddSinkDeliversChunks(t *testing.T) {
+	chunks := make(chan []byte)
+	broadcaster := New(chunks, time.Second)
+	sink := make(chan []byte, 8)
+	remove := broadcaster.AddSink(sink)
+	defer remove()
+
+	go broadcaster.broadcastLoop()
+	chunks <- []byte("hls chunk")
+
+	select {
+	case got := <-sink:
+		if string(got) != "hls chunk" {
+			t.Fatalf("expected sink chunk %q, got %q", "hls chunk", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for sink chunk")
+	}
+	close(chunks)
+}
+
+func TestBroadcaster_RemoveSinkStopsDelivery(t *testing.T) {
+	chunks := make(chan []byte)
+	broadcaster := New(chunks, time.Second)
+	sink := make(chan []byte, 8)
+	remove := broadcaster.AddSink(sink)
+
+	go broadcaster.broadcastLoop()
+	chunks <- []byte("first")
+	select {
+	case <-sink:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first chunk")
+	}
+
+	remove()
+	chunks <- []byte("second")
+	select {
+	case got := <-sink:
+		t.Fatalf("expected no delivery after removal, got %q", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(chunks)
+}
+
 func waitForClientCount(t *testing.T, broadcaster *Broadcaster, want int) {
 	t.Helper()
 
