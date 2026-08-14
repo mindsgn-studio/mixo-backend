@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // Config describes how to build the HLS encoder for the radio stream.
@@ -51,10 +52,11 @@ func (c Config) Args() []string {
 // stream into HLS playlists and segments written to HLSDir/StreamID. The
 // encoder must be fed the same MP3 chunks the HTTP broadcaster sends out.
 type Encoder struct {
-	cfg Config
-	mu  sync.Mutex
-	cmd *exec.Cmd
-	in  io.WriteCloser
+	cfg  Config
+	mu   sync.Mutex
+	cmd  *exec.Cmd
+	in   io.WriteCloser
+	done chan struct{}
 }
 
 // New builds an Encoder, applying safe defaults for unset fields.
@@ -105,6 +107,7 @@ func (e *Encoder) Start() error {
 	}
 	e.cmd = cmd
 	e.in = stdin
+	e.done = make(chan struct{})
 	go e.watch(cmd)
 	return nil
 }
@@ -119,22 +122,27 @@ func (e *Encoder) Write(p []byte) (int, error) {
 	return e.in.Write(p)
 }
 
-// Stop terminates FFmpeg and waits for the process to exit.
+// Stop terminates FFmpeg and waits for the encoder to shut down. The process
+// is reaped by watch(), which is the only goroutine allowed to call Wait().
 func (e *Encoder) Stop() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.cmd == nil {
-		return
-	}
+	cmd := e.cmd
+	done := e.done
 	if e.in != nil {
 		_ = e.in.Close()
 		e.in = nil
 	}
-	if e.cmd.Process != nil {
-		_ = e.cmd.Process.Kill()
+	e.mu.Unlock()
+
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
-	_ = e.cmd.Wait()
-	e.cmd = nil
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	}
 }
 
 // IsRunning reports whether the encoder process is currently alive.
@@ -144,7 +152,9 @@ func (e *Encoder) IsRunning() bool {
 	return e.cmd != nil && e.cmd.Process != nil
 }
 
-// watch clears the encoder state when FFmpeg exits on its own.
+// watch clears the encoder state when FFmpeg exits and is the only goroutine
+// that calls Wait() on the process. It closes e.done once cleanup is finished
+// so a concurrent Stop() can wait for a clean shutdown.
 func (e *Encoder) watch(cmd *exec.Cmd) {
 	if err := cmd.Wait(); err != nil {
 		log.Printf("HLS encoder stopped: %v", err)
@@ -156,5 +166,10 @@ func (e *Encoder) watch(cmd *exec.Cmd) {
 	if e.cmd == cmd {
 		e.cmd = nil
 	}
+	done := e.done
+	e.done = nil
 	e.mu.Unlock()
+	if done != nil {
+		close(done)
+	}
 }
